@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 // Adjust this path to wherever your supabaseClient.js actually lives in the project
 import { supabase } from "./supabaseClient";
+import { BarChart as RBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, LineChart, Line } from "recharts";
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const GlobalStyles = () => (
@@ -118,6 +119,19 @@ const StatCard = ({ icon, label, value, change, positive=true, color="#ff5c3a" }
   </Card>
 );
 
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+const timeAgo = (isoString) => {
+  if (!isoString) return "";
+  const diffMs = Date.now() - new Date(isoString).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+};
+
 // ─── MINI BAR CHART ───────────────────────────────────────────────────────────
 const BarChart = ({ data, labels, color="#ff5c3a", height=80 }) => {
   const max = Math.max(...data);
@@ -168,7 +182,7 @@ const AdminLogin = ({ onLogin }) => {
     }
 
     setLoading(false);
-    onLogin();
+    onLogin(email);
   };
 
   return (
@@ -256,70 +270,121 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
 
 // ─── OVERVIEW ─────────────────────────────────────────────────────────────────
 const Overview = () => {
-  const [now] = useState(new Date());
-  const weekUsers = [1200,1450,1100,1800,2100,1650,2340];
-  const weekRevenue = [18000,24000,15000,31000,28000,22000,38500];
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ totalUsers:0, totalMessages:0, hintsSold:0, pendingWithdrawals:0, messagesToday:0, hintsToday:0, signupsToday:0 });
+  const [weekUsers, setWeekUsers] = useState([0,0,0,0,0,0,0]);
+  const [weekRevenue, setWeekRevenue] = useState([0,0,0,0,0,0,0]);
+  const [recentActivity, setRecentActivity] = useState([]);
   const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
-  const recentActivity = [
-    { user:"@temi_xx", action:"Signed up", time:"2 mins ago" },
-    { user:"@kolade_f", action:"Bought Hint 2 (₦150)", time:"4 mins ago" },
-    { user:"@sade_ng", action:"Withdrew ₦2,000", time:"7 mins ago" },
-    { user:"@david_a", action:"Joined Stake & Win", time:"11 mins ago" },
-    { user:"@grace_o", action:"Bought Hint 1 (₦100)", time:"15 mins ago" },
-    { user:"@mike_t", action:"Reported a message", time:"22 mins ago" },
-    { user:"@femi_b", action:"Signed up", time:"28 mins ago" },
-  ];
+  useEffect(() => { fetchOverview(); }, []);
+
+  const fetchOverview = async () => {
+    setLoading(true);
+    const todayStr = new Date().toDateString();
+
+    const [{ count: totalUsers }, { count: totalMessages }, { data: hintTx }, { data: withdrawalTx }] = await Promise.all([
+      supabase.from("profiles").select("id", { count:"exact", head:true }),
+      supabase.from("messages").select("id", { count:"exact", head:true }),
+      supabase.from("transactions").select("amount, created_at").eq("type","hint_purchase").eq("status","completed"),
+      supabase.from("transactions").select("amount").eq("type","withdrawal").eq("status","pending"),
+    ]);
+
+    const { data: recentProfiles } = await supabase.from("profiles").select("id, username, created_at").order("created_at",{ascending:false}).limit(5);
+    const { data: recentMessages } = await supabase.from("messages").select("id, recipient_id, created_at").order("created_at",{ascending:false}).limit(5);
+
+    const hintsSold = (hintTx || []).length;
+    const pendingWithdrawals = (withdrawalTx || []).reduce((s,t)=>s+Number(t.amount),0);
+    const messagesToday = 0; // computed below from a fresh count query
+    const hintsToday = (hintTx || []).filter(t => new Date(t.created_at).toDateString() === todayStr).length;
+    const signupsToday = (recentProfiles || []).filter(p => new Date(p.created_at).toDateString() === todayStr).length;
+
+    const { count: msgsToday } = await supabase.from("messages").select("id", { count:"exact", head:true }).gte("created_at", new Date().toISOString().slice(0,10));
+
+    setStats({ totalUsers: totalUsers||0, totalMessages: totalMessages||0, hintsSold, pendingWithdrawals, messagesToday: msgsToday||0, hintsToday, signupsToday });
+
+    // Last 7 days, oldest to newest
+    const dayBuckets = [...Array(7)].map((_,i) => {
+      const d = new Date(); d.setDate(d.getDate() - (6-i));
+      return d.toDateString();
+    });
+    setWeekUsers(dayBuckets.map(dStr => (recentProfiles||[]).filter(p=>new Date(p.created_at).toDateString()===dStr).length));
+    setWeekRevenue(dayBuckets.map(dStr => (hintTx||[]).filter(t=>new Date(t.created_at).toDateString()===dStr).reduce((s,t)=>s+Number(t.amount),0)));
+
+    // Recent activity: merge recent signups + recent messages, newest first
+    const recipientIds = [...new Set((recentMessages||[]).map(m=>m.recipient_id))];
+    const { data: recipientProfiles } = recipientIds.length
+      ? await supabase.from("profiles").select("id, username").in("id", recipientIds)
+      : { data: [] };
+    const usernameById = Object.fromEntries((recipientProfiles||[]).map(p=>[p.id,p.username]));
+
+    const activity = [
+      ...(recentProfiles||[]).map(p => ({ user:`@${p.username}`, action:"Signed up", time:timeAgo(p.created_at), ts:p.created_at })),
+      ...(recentMessages||[]).map(m => ({ user:`@${usernameById[m.recipient_id]||"unknown"}`, action:"Received a message", time:timeAgo(m.created_at), ts:m.created_at })),
+    ].sort((a,b)=> new Date(b.ts)-new Date(a.ts)).slice(0,7);
+    setRecentActivity(activity);
+
+    setLoading(false);
+  };
 
   return (
     <div>
-      {/* Live banner */}
-      <div style={{ background:"linear-gradient(135deg,#ff5c3a,#ff8c42)", borderRadius:16, padding:"20px 24px", marginBottom:24, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:16 }}>
-        <div>
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-            <div className="pulse" style={{ width:8, height:8, borderRadius:"50%", background:"white" }}/>
-            <span style={{ color:"white", fontSize:"0.78rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>Live right now</span>
+      {/* Today snapshot */}
+      <div style={{ background:"linear-gradient(135deg,#ff5c3a,#ff8c42)", borderRadius:16, padding:"20px 24px", marginBottom:24, display:"flex", alignItems:"center", justifyContent:"center", flexWrap:"wrap", gap:24 }}>
+        {[[String(stats.messagesToday),"messages sent today"],[String(stats.hintsToday),"hints bought today"],[String(stats.signupsToday),"new signups today"]].map(([v,l]) => (
+          <div key={l} style={{ textAlign:"center" }}>
+            <div className="syne" style={{ color:"white", fontSize:"1.3rem", fontWeight:800 }}>{v}</div>
+            <div style={{ color:"rgba(255,255,255,0.6)", fontSize:"0.72rem" }}>{l}</div>
           </div>
-          <span className="syne" style={{ color:"white", fontSize:"2rem", fontWeight:800 }}>1,247</span>
-          <span style={{ color:"rgba(255,255,255,0.7)", fontSize:"0.85rem", marginLeft:8 }}>active users online</span>
-        </div>
-        <div style={{ display:"flex", gap:24 }}>
-          {[["342","messages sent today"],["89","hints bought today"],["23","new signups today"]].map(([v,l]) => (
-            <div key={l} style={{ textAlign:"center" }}>
-              <div className="syne" style={{ color:"white", fontSize:"1.3rem", fontWeight:800 }}>{v}</div>
-              <div style={{ color:"rgba(255,255,255,0.6)", fontSize:"0.72rem" }}>{l}</div>
-            </div>
-          ))}
-        </div>
+        ))}
       </div>
 
       {/* Stat cards */}
       <div className="fadeUp" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:14, marginBottom:24 }}>
-        <StatCard icon={<Icons.users s={20} c="#38bdf8"/>} label="Total users" value="52,341" change="12% this week" positive color="#38bdf8"/>
-        <StatCard icon={<Icons.chat s={20} c="#a855f7"/>} label="Total messages" value="1.2M" change="8% this week" positive color="#a855f7"/>
-        <StatCard icon={<Icons.money s={20} c="#ff5c3a"/>} label="Total revenue" value="₦4.8M" change="22% this week" positive color="#ff5c3a"/>
-        <StatCard icon={<MaskIcon size={20} color="#ffcd3c"/>} label="Hints sold" value="38,920" change="18% this week" positive color="#ffcd3c"/>
-        <StatCard icon={<Icons.gamepad s={20} c="#22c55e"/>} label="Games played" value="8,441" change="5% this week" positive color="#22c55e"/>
-        <StatCard icon={<Icons.bank s={20} c="#ef4444"/>} label="Pending withdrawals" value="₦182,000" color="#ef4444"/>
+        <StatCard icon={<Icons.users s={20} c="#38bdf8"/>} label="Total users" value={stats.totalUsers.toLocaleString()} color="#38bdf8"/>
+        <StatCard icon={<Icons.chat s={20} c="#a855f7"/>} label="Total messages" value={stats.totalMessages.toLocaleString()} color="#a855f7"/>
+        <StatCard icon={<MaskIcon size={20} color="#ffcd3c"/>} label="Hints sold" value={stats.hintsSold.toLocaleString()} color="#ffcd3c"/>
+        <StatCard icon={<Icons.bank s={20} c="#ef4444"/>} label="Pending withdrawals" value={`₦${stats.pendingWithdrawals.toLocaleString()}`} color="#ef4444"/>
       </div>
+      <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
+        "Games played" and "active users online" aren't shown — no games or presence tracking exists in the database yet.
+      </p>
 
       {/* Charts row */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:24 }}>
         <Card>
-          <p style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.75rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>New users this week</p>
-          <p className="syne" style={{ color:"white", fontSize:"1.4rem", fontWeight:800, marginBottom:16 }}>+2,340 <span style={{ fontSize:"0.85rem", color:"#22c55e", fontWeight:500, display:"inline-flex", alignItems:"center", gap:3 }}><Icons.trendUp s={12} c="#22c55e"/> 14%</span></p>
-          <BarChart data={weekUsers} labels={days} color="#38bdf8"/>
+          <p style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.75rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>New users, last 7 days</p>
+          <p className="syne" style={{ color:"white", fontSize:"1.4rem", fontWeight:800, marginBottom:16 }}>+{weekUsers.reduce((a,b)=>a+b,0)}</p>
+          <ResponsiveContainer width="100%" height={160}>
+            <RBarChart data={days.map((d,i)=>({ day:d, value:weekUsers[i] }))} margin={{ top:5, right:5, left:-20, bottom:5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
+              <XAxis dataKey="day" stroke="rgba(255,255,255,0.3)" fontSize={12}/>
+              <YAxis stroke="rgba(255,255,255,0.3)" fontSize={12} allowDecimals={false}/>
+              <RTooltip contentStyle={{ background:"#1a1a1a", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, color:"white" }}/>
+              <Bar dataKey="value" fill="#38bdf8" radius={[4,4,0,0]}/>
+            </RBarChart>
+          </ResponsiveContainer>
         </Card>
         <Card>
-          <p style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.75rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>Revenue this week (₦)</p>
-          <p className="syne" style={{ color:"white", fontSize:"1.4rem", fontWeight:800, marginBottom:16 }}>₦38,500 <span style={{ fontSize:"0.85rem", color:"#22c55e", fontWeight:500, display:"inline-flex", alignItems:"center", gap:3 }}><Icons.trendUp s={12} c="#22c55e"/> 22%</span></p>
-          <BarChart data={weekRevenue} labels={days} color="#ff5c3a"/>
+          <p style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.75rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>Hint revenue, last 7 days (₦)</p>
+          <p className="syne" style={{ color:"white", fontSize:"1.4rem", fontWeight:800, marginBottom:16 }}>₦{weekRevenue.reduce((a,b)=>a+b,0).toLocaleString()}</p>
+          <ResponsiveContainer width="100%" height={160}>
+            <RBarChart data={days.map((d,i)=>({ day:d, value:weekRevenue[i] }))} margin={{ top:5, right:5, left:-20, bottom:5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
+              <XAxis dataKey="day" stroke="rgba(255,255,255,0.3)" fontSize={12}/>
+              <YAxis stroke="rgba(255,255,255,0.3)" fontSize={12} allowDecimals={false}/>
+              <RTooltip contentStyle={{ background:"#1a1a1a", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, color:"white" }} formatter={(v)=>`₦${v.toLocaleString()}`}/>
+              <Bar dataKey="value" fill="#ff5c3a" radius={[4,4,0,0]}/>
+            </RBarChart>
+          </ResponsiveContainer>
         </Card>
       </div>
 
       {/* Recent activity */}
       <Card>
         <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18, fontSize:"0.95rem" }}>Recent activity</p>
+        {loading && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>Loading...</p>}
+        {!loading && recentActivity.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>No activity yet.</p>}
         {recentActivity.map((a,i) => (
           <div key={i} className="row-hover" style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 8px", borderRadius:10, transition:"background 0.15s" }}>
             <Avatar size={34} bg={AVATAR_COLORS[i%AVATAR_COLORS.length]}/>
@@ -338,41 +403,115 @@ const Overview = () => {
 // ─── REVENUE ──────────────────────────────────────────────────────────────────
 const Revenue = () => {
   const [range, setRange] = useState("monthly");
+  const [loading, setLoading] = useState(true);
+  const [hintTx, setHintTx] = useState([]);
+  const [depositTx, setDepositTx] = useState([]);
+  const [withdrawalTx, setWithdrawalTx] = useState([]);
+  const [recentTx, setRecentTx] = useState([]);
 
-  const ranges = {
-    hourly:  { data:[1200,900,600,400,300,500,1800,3200,4100,3800,4200,4600,5100,4900,5300,5600,5200,4800,5900,6200,5400,4100,2800,1900], labels:["12a","1a","2a","3a","4a","5a","6a","7a","8a","9a","10a","11a","12p","1p","2p","3p","4p","5p","6p","7p","8p","9p","10p","11p"], total:"₦89,200", changeLabel:"vs. yesterday same hour" },
-    daily:   { data:[18000,24000,15000,31000,28000,22000,38500], labels:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], total:"₦176,500", changeLabel:"this week" },
-    weekly:  { data:[142000,168000,155000,190000,210000,198000,225000,240000], labels:["W1","W2","W3","W4","W5","W6","W7","W8"], total:"₦240,000", changeLabel:"this week" },
-    monthly: { data:[280000,310000,295000,420000,380000,510000,490000,620000,580000,710000,680000,840000], labels:["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"], total:"₦840,000", changeLabel:"this month" },
-    yearly:  { data:[1200000,2100000,3400000,4760000], labels:["2023","2024","2025","2026"], total:"₦4.76M", changeLabel:"this year" },
+  useEffect(() => { fetchRevenue(); }, []);
+
+  const fetchRevenue = async () => {
+    setLoading(true);
+    const [{ data: hints }, { data: deposits }, { data: withdrawals }] = await Promise.all([
+      supabase.from("transactions").select("amount, created_at").eq("type","hint_purchase").eq("status","completed"),
+      supabase.from("transactions").select("amount, created_at").eq("type","deposit").eq("status","completed"),
+      supabase.from("transactions").select("amount, created_at").eq("type","withdrawal").eq("status","completed"),
+    ]);
+    setHintTx(hints || []);
+    setDepositTx(deposits || []);
+    setWithdrawalTx(withdrawals || []);
+
+    const { data: recent } = await supabase
+      .from("transactions")
+      .select("id, user_id, type, amount, status, created_at")
+      .in("type", ["hint_purchase","deposit","withdrawal"])
+      .order("created_at", { ascending:false })
+      .limit(8);
+    const userIds = [...new Set((recent||[]).map(t=>t.user_id))];
+    const { data: profilesData } = userIds.length ? await supabase.from("profiles").select("id, username").in("id", userIds) : { data: [] };
+    const usernameById = Object.fromEntries((profilesData||[]).map(p=>[p.id,p.username]));
+    setRecentTx((recent||[]).map(t => ({
+      type: t.type === "hint_purchase" ? "Hint purchase" : t.type === "deposit" ? "Wallet top-up" : "Withdrawal",
+      user: `@${usernameById[t.user_id]||"unknown"}`,
+      amount: `₦${Number(t.amount).toLocaleString()}`,
+      unmaskr: t.type === "hint_purchase" ? `₦${(Number(t.amount)*0.5).toLocaleString()}` : "₦0",
+      time: timeAgo(t.created_at),
+    })));
+
+    setLoading(false);
   };
-  const current = ranges[range];
 
-  // Real profit = only what Unmaskr actually keeps (hint 50% cut + Stake & Win 15% fee).
-  // Top-ups and withdrawals are money passing through user wallets, not profit.
+  // NOTE: profit here is hint purchases only (Unmaskr's 50% cut). Stake & Win's
+  // 15% fee isn't included — no games/stakes table exists in the database yet.
+  const hintTotal = hintTx.reduce((s,t)=>s+Number(t.amount),0);
+  const profit = hintTotal * 0.5;
+  const depositTotal = depositTx.reduce((s,t)=>s+Number(t.amount),0);
+  const withdrawalTotal = withdrawalTx.reduce((s,t)=>s+Number(t.amount),0);
+
+  const todayStr = new Date().toDateString();
+  const thisMonth = new Date().getMonth();
+  const thisYear = new Date().getFullYear();
+  const profitToday = hintTx.filter(t=>new Date(t.created_at).toDateString()===todayStr).reduce((s,t)=>s+Number(t.amount),0)*0.5;
+  const profitThisMonth = hintTx.filter(t=>{const d=new Date(t.created_at); return d.getMonth()===thisMonth && d.getFullYear()===thisYear;}).reduce((s,t)=>s+Number(t.amount),0)*0.5;
+
+  const bucketed = (() => {
+    if (range === "hourly") {
+      const labels = ["12a","1a","2a","3a","4a","5a","6a","7a","8a","9a","10a","11a","12p","1p","2p","3p","4p","5p","6p","7p","8p","9p","10p","11p"];
+      const data = labels.map((_,h) => hintTx.filter(t=>{const d=new Date(t.created_at); return d.toDateString()===todayStr && d.getHours()===h;}).reduce((s,t)=>s+Number(t.amount)*0.5,0));
+      return { data, labels };
+    }
+    if (range === "daily") {
+      const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+      const buckets = [...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); return d.toDateString(); });
+      return { data: buckets.map(dStr=>hintTx.filter(t=>new Date(t.created_at).toDateString()===dStr).reduce((s,t)=>s+Number(t.amount)*0.5,0)), labels: days };
+    }
+    if (range === "monthly") {
+      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const data = months.map((_,m)=>hintTx.filter(t=>{const d=new Date(t.created_at); return d.getMonth()===m && d.getFullYear()===thisYear;}).reduce((s,t)=>s+Number(t.amount)*0.5,0));
+      return { data, labels: months };
+    }
+    if (range === "yearly") {
+      const years = [thisYear-3, thisYear-2, thisYear-1, thisYear];
+      const data = years.map(y=>hintTx.filter(t=>new Date(t.created_at).getFullYear()===y).reduce((s,t)=>s+Number(t.amount)*0.5,0));
+      return { data, labels: years.map(String) };
+    }
+    const buckets = [...Array(8)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(7-i)*7); return d; });
+    const data = buckets.map((start)=>{
+      const end = new Date(start); end.setDate(end.getDate()+7);
+      return hintTx.filter(t=>{const d=new Date(t.created_at); return d>=start && d<end;}).reduce((s,t)=>s+Number(t.amount)*0.5,0);
+    });
+    return { data, labels: data.map((_,i)=>`W${i+1}`) };
+  })();
+
+  const chartTotal = bucketed.data.reduce((a,b)=>a+b,0);
+  const rangeChangeLabel = { hourly:"today, by hour", daily:"last 7 days", weekly:"last 8 weeks", monthly:`${thisYear}, by month`, yearly:"last 4 years" }[range];
+
   const profitSources = [
-    { source:"Hint purchases — Unmaskr's 50% cut", amount:"₦2,140,000", percent:62, color:"#ff5c3a" },
-    { source:"Stake & Win — 15% fee", amount:"₦1,320,000", percent:38, color:"#ffcd3c" },
+    { source:"Hint purchases — Unmaskr's 50% cut", amount:`₦${profit.toLocaleString()}`, percent:100, color:"#ff5c3a" },
   ];
   const moneyMovedOnly = [
-    { source:"Wallet top-ups (not profit — goes to user wallets)", amount:"₦960,000", color:"#38bdf8" },
-    { source:"Withdrawals paid out (not profit — leaves the platform)", amount:"₦1,180,000", color:"#a855f7" },
+    { source:"Wallet top-ups (not profit — goes to user wallets)", amount:`₦${depositTotal.toLocaleString()}`, color:"#38bdf8" },
+    { source:"Withdrawals paid out (not profit — leaves the platform)", amount:`₦${withdrawalTotal.toLocaleString()}`, color:"#a855f7" },
   ];
 
   return (
     <div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:14, marginBottom:24 }}>
-        <StatCard icon={<Icons.money s={20} c="#22c55e"/>} label="Your profit (all time)" value="₦3.46M" change="24%" positive color="#22c55e"/>
-        <StatCard icon={<Icons.calendar s={20} c="#ffcd3c"/>} label="Profit this month" value="₦504K" change="18%" positive color="#ffcd3c"/>
-        <StatCard icon={<Icons.calendar s={20} c="#22c55e"/>} label="Profit today" value="₦12,750" change="5%" positive color="#22c55e"/>
-        <StatCard icon={<Icons.refresh s={20} c="#38bdf8"/>} label="Total money moved" value="₦9.08M" color="#38bdf8"/>
+        <StatCard icon={<Icons.money s={20} c="#22c55e"/>} label="Your profit (all time)" value={`₦${profit.toLocaleString()}`} color="#22c55e"/>
+        <StatCard icon={<Icons.calendar s={20} c="#ffcd3c"/>} label="Profit this month" value={`₦${profitThisMonth.toLocaleString()}`} color="#ffcd3c"/>
+        <StatCard icon={<Icons.calendar s={20} c="#22c55e"/>} label="Profit today" value={`₦${profitToday.toLocaleString()}`} color="#22c55e"/>
+        <StatCard icon={<Icons.refresh s={20} c="#38bdf8"/>} label="Total money moved" value={`₦${(hintTotal+depositTotal+withdrawalTotal).toLocaleString()}`} color="#38bdf8"/>
       </div>
+      <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
+        Profit shown here counts hint purchases only — Stake & Win's 15% fee isn't included, since no games data exists in the database yet.
+      </p>
 
       <Card style={{ marginBottom:20 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, marginBottom:18 }}>
           <div>
             <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:4 }}>Profit over time</p>
-            <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem" }}>{current.changeLabel}</p>
+            <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem" }}>{rangeChangeLabel}</p>
           </div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {["hourly","daily","weekly","monthly","yearly"].map(r => (
@@ -380,8 +519,16 @@ const Revenue = () => {
             ))}
           </div>
         </div>
-        <p className="syne" style={{ color:"white", fontSize:"1.4rem", fontWeight:800, marginBottom:16 }}>{current.total}</p>
-        <BarChart data={current.data} labels={current.labels} color="#ff5c3a" height={120}/>
+        <p className="syne" style={{ color:"white", fontSize:"1.4rem", fontWeight:800, marginBottom:16 }}>₦{chartTotal.toLocaleString()}</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <RBarChart data={bucketed.labels.map((l,i)=>({ label:l, value:bucketed.data[i] }))} margin={{ top:5, right:5, left:-20, bottom:5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
+            <XAxis dataKey="label" stroke="rgba(255,255,255,0.3)" fontSize={11}/>
+            <YAxis stroke="rgba(255,255,255,0.3)" fontSize={12} allowDecimals={false}/>
+            <RTooltip contentStyle={{ background:"#1a1a1a", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, color:"white" }} formatter={(v)=>`₦${v.toLocaleString()}`}/>
+            <Bar dataKey="value" fill="#ff5c3a" radius={[4,4,0,0]}/>
+          </RBarChart>
+        </ResponsiveContainer>
       </Card>
 
       <Card style={{ marginBottom:20 }}>
@@ -411,18 +558,14 @@ const Revenue = () => {
         ))}
       </Card>
 
-      <ProfitSweepLog totalProfit={3460000}/>
+      <ProfitSweepLog totalProfit={profit}/>
 
       <Card>
         <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Recent transactions</p>
-        {[
-          { type:"Hint purchase", user:"@temi_xx", amount:"₦100", unmaskr:"₦50", time:"2m ago" },
-          { type:"Stake & Win", user:"@kolade_f", amount:"₦3,000", unmaskr:"₦450", time:"5m ago" },
-          { type:"Hint purchase", user:"@sade_ng", amount:"₦200", unmaskr:"₦100", time:"9m ago" },
-          { type:"Wallet top-up", user:"@grace_o", amount:"₦1,000", unmaskr:"₦0", time:"14m ago" },
-          { type:"Hint purchase", user:"@david_a", amount:"₦150", unmaskr:"₦75", time:"20m ago" },
-        ].map((t,i) => (
-          <div key={i} className="row-hover" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 8px", borderRadius:10, borderBottom:i<4?"1px solid rgba(255,255,255,0.05)":"none" }}>
+        {loading && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>Loading...</p>}
+        {!loading && recentTx.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>No transactions yet.</p>}
+        {recentTx.map((t,i) => (
+          <div key={i} className="row-hover" style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 8px", borderRadius:10, borderBottom:i<recentTx.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
             <div style={{ flex:1 }}>
               <p style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>{t.type}</p>
               <p style={{ color:"rgba(255,255,255,0.35)", fontSize:"0.75rem" }}>{t.user} · {t.time}</p>
@@ -497,30 +640,87 @@ const ProfitSweepLog = ({ totalProfit }) => {
 const Users = () => {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
-  const users = [
-    { name:"Temi Adeyemi", username:"temi_xx", joined:"Jun 25, 2025", messages:47, spent:"₦850", earned:"₦2,400", status:"active" },
-    { name:"Kolade Femi", username:"kolade_f", joined:"Jun 24, 2025", messages:23, spent:"₦300", earned:"₦600", status:"active" },
-    { name:"Sade Nwosu", username:"sade_ng", joined:"Jun 23, 2025", messages:89, spent:"₦1,200", earned:"₦4,100", status:"active" },
-    { name:"David Ama", username:"david_a", joined:"Jun 22, 2025", messages:12, spent:"₦0", earned:"₦200", status:"inactive" },
-    { name:"Grace Okon", username:"grace_o", joined:"Jun 21, 2025", messages:34, spent:"₦450", earned:"₦900", status:"active" },
-    { name:"Mike Taiwo", username:"mike_t", joined:"Jun 20, 2025", messages:5, spent:"₦100", earned:"₦0", status:"suspended" },
-    { name:"Femi Bello", username:"femi_b", joined:"Jun 19, 2025", messages:61, spent:"₦700", earned:"₦1,800", status:"active" },
-  ];
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newToday, setNewToday] = useState(0);
+
+  useEffect(() => { fetchUsers(); }, []);
+
+  const fetchUsers = async () => {
+    setLoading(true);
+    const { data: profilesData, error } = await supabase
+      .from("profiles")
+      .select("id, name, username, created_at, status")
+      .order("created_at", { ascending: false });
+
+    if (error || !profilesData) { setLoading(false); return; }
+
+    // Message count, spend, and earnings per user. Simple per-user queries —
+    // fine for testing-scale data; worth moving to a single SQL view/RPC
+    // once you have real volume.
+    // NOTE: 'hint_purchase' / 'hint_earning' are assumed transaction.type
+    // values — adjust these two strings if your main app uses different ones.
+    const enriched = await Promise.all(profilesData.map(async (u) => {
+      const { count: messageCount } = await supabase
+        .from("messages")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_id", u.id);
+
+      const { data: spentRows } = await supabase
+        .from("transactions")
+        .select("amount")
+        .eq("user_id", u.id)
+        .eq("type", "hint_purchase")
+        .eq("status", "completed");
+
+      const { data: earnedRows } = await supabase
+        .from("transactions")
+        .select("amount")
+        .eq("user_id", u.id)
+        .eq("type", "hint_earning")
+        .eq("status", "completed");
+
+      const spent = (spentRows || []).reduce((s, r) => s + Number(r.amount), 0);
+      const earned = (earnedRows || []).reduce((s, r) => s + Number(r.amount), 0);
+
+      return {
+        id: u.id,
+        name: u.name || u.username || "Unnamed",
+        username: u.username || "",
+        joined: new Date(u.created_at).toLocaleDateString("en-NG", { month:"short", day:"numeric", year:"numeric" }),
+        messages: messageCount || 0,
+        spent: `₦${spent.toLocaleString()}`,
+        earned: `₦${earned.toLocaleString()}`,
+        status: u.status || "active",
+      };
+    }));
+
+    setUsers(enriched);
+    const today = new Date().toDateString();
+    setNewToday(profilesData.filter(u => new Date(u.created_at).toDateString() === today).length);
+    setLoading(false);
+  };
+
+  const toggleSuspend = async (user) => {
+    const newStatus = user.status === "suspended" ? "active" : "suspended";
+    const { error } = await supabase.from("profiles").update({ status: newStatus }).eq("id", user.id);
+    if (!error) setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus } : u));
+  };
 
   const filtered = users.filter(u =>
     (filter==="all" || u.status===filter) &&
-    (u.name.toLowerCase().includes(search.toLowerCase()) || u.username.includes(search.toLowerCase()))
+    (u.name.toLowerCase().includes(search.toLowerCase()) || u.username.toLowerCase().includes(search.toLowerCase()))
   );
 
+  const suspendedCount = users.filter(u => u.status === "suspended").length;
   const statusColor = { active:"#22c55e", inactive:"#888", suspended:"#ef4444" };
 
   return (
     <div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:14, marginBottom:24 }}>
-        <StatCard icon={<Icons.users s={20} c="#38bdf8"/>} label="Total users" value="52,341" change="12%" positive color="#38bdf8"/>
-        <StatCard icon={<div style={{width:12,height:12,borderRadius:"50%",background:"#22c55e"}}/>} label="Active today" value="1,247" color="#22c55e"/>
-        <StatCard icon={<Icons.plusCirc s={20} c="#ffcd3c"/>} label="New today" value="89" change="23%" positive color="#ffcd3c"/>
-        <StatCard icon={<Icons.ban s={20} c="#ef4444"/>} label="Suspended" value="34" color="#ef4444"/>
+        <StatCard icon={<Icons.users s={20} c="#38bdf8"/>} label="Total users" value={users.length.toLocaleString()} color="#38bdf8"/>
+        <StatCard icon={<Icons.plusCirc s={20} c="#ffcd3c"/>} label="New today" value={String(newToday)} color="#ffcd3c"/>
+        <StatCard icon={<Icons.ban s={20} c="#ef4444"/>} label="Suspended" value={String(suspendedCount)} color="#ef4444"/>
       </div>
 
       <Card>
@@ -533,6 +733,9 @@ const Users = () => {
           </div>
         </div>
 
+        {loading ? (
+          <p style={{ color:"rgba(255,255,255,0.3)", padding:"20px 8px", fontSize:"0.85rem" }}>Loading users...</p>
+        ) : (
         <div style={{ overflowX:"auto" }}>
           <table style={{ width:"100%", borderCollapse:"collapse" }}>
             <thead>
@@ -544,7 +747,7 @@ const Users = () => {
             </thead>
             <tbody>
               {filtered.map((u,i) => (
-                <tr key={i} className="row-hover" style={{ borderBottom:"1px solid rgba(255,255,255,0.04)", transition:"background 0.15s" }}>
+                <tr key={u.id} className="row-hover" style={{ borderBottom:"1px solid rgba(255,255,255,0.04)", transition:"background 0.15s" }}>
                   <td style={{ padding:"12px 12px" }}>
                     <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                       <Avatar size={28} bg={AVATAR_COLORS[i%AVATAR_COLORS.length]}/>
@@ -561,15 +764,18 @@ const Users = () => {
                   <td style={{ padding:"12px" }}><Badge text={u.status} color={statusColor[u.status]}/></td>
                   <td style={{ padding:"12px" }}>
                     <div style={{ display:"flex", gap:6 }}>
-                      <button style={{ padding:"5px 10px", borderRadius:6, border:"1px solid rgba(255,255,255,0.1)", background:"transparent", color:"rgba(255,255,255,0.5)", cursor:"pointer", fontSize:"0.75rem" }}>View</button>
-                      {u.status!=="suspended" && <button style={{ padding:"5px 10px", borderRadius:6, border:"1px solid rgba(239,68,68,0.3)", background:"rgba(239,68,68,0.1)", color:"#ef4444", cursor:"pointer", fontSize:"0.75rem" }}>Suspend</button>}
+                      <button onClick={()=>toggleSuspend(u)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${u.status==="suspended"?"rgba(34,197,94,0.3)":"rgba(239,68,68,0.3)"}`, background:u.status==="suspended"?"rgba(34,197,94,0.1)":"rgba(239,68,68,0.1)", color:u.status==="suspended"?"#22c55e":"#ef4444", cursor:"pointer", fontSize:"0.75rem" }}>{u.status==="suspended"?"Unsuspend":"Suspend"}</button>
                     </div>
                   </td>
                 </tr>
               ))}
+              {filtered.length === 0 && (
+                <tr><td colSpan={7} style={{ padding:"20px 12px", color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>No users found.</td></tr>
+              )}
             </tbody>
           </table>
         </div>
+        )}
       </Card>
     </div>
   );
@@ -577,34 +783,69 @@ const Users = () => {
 
 // ─── MESSAGES ─────────────────────────────────────────────────────────────────
 const Messages = () => {
-  const msgs = [
-    { from:"Anonymous", to:"@temi_xx", preview:"You always make everyone feel so welcome", time:"2m ago", hints:2, flagged:false },
-    { from:"Anonymous", to:"@sade_ng", preview:"I really like you but I'm too scared to say it", time:"5m ago", hints:0, flagged:false },
-    { from:"Anonymous", to:"@mike_t", preview:"You are a terrible person and everyone hates you", time:"10m ago", hints:0, flagged:true },
-    { from:"Anonymous", to:"@kolade_f", preview:"Your content is amazing, keep it up!", time:"15m ago", hints:1, flagged:false },
-    { from:"Anonymous", to:"@grace_o", preview:"I wish I could tell you this in person", time:"22m ago", hints:3, flagged:false },
-    { from:"Anonymous", to:"@femi_b", preview:"Stop pretending to be who you're not", time:"30m ago", hints:0, flagged:true },
-  ];
+  const [msgs, setMsgs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
+
+  useEffect(() => { fetchMessages(); }, []);
+
+  const fetchMessages = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("messages")
+      .select("id, recipient_id, text, hints_unlocked, flagged, created_at")
+      .order("created_at", { ascending: false })
+      .limit(200);
+
+    if (error || !data) { setLoading(false); return; }
+
+    const recipientIds = [...new Set(data.map(m => m.recipient_id))];
+    const { data: profilesData } = await supabase
+      .from("profiles")
+      .select("id, username")
+      .in("id", recipientIds);
+    const usernameById = Object.fromEntries((profilesData || []).map(p => [p.id, p.username]));
+
+    setMsgs(data.map(m => ({
+      id: m.id,
+      to: `@${usernameById[m.recipient_id] || "unknown"}`,
+      preview: m.text,
+      time: timeAgo(m.created_at),
+      hints: (m.hints_unlocked || []).length,
+      flagged: !!m.flagged,
+    })));
+    setLoading(false);
+  };
+
+  const deleteMessage = async (msg) => {
+    const { error } = await supabase.from("messages").delete().eq("id", msg.id);
+    if (!error) setMsgs(prev => prev.filter(m => m.id !== msg.id));
+  };
+
+  const flaggedCount = msgs.filter(m => m.flagged).length;
+  const visible = showFlaggedOnly ? msgs.filter(m => m.flagged) : msgs;
+  const hintsTotal = msgs.reduce((s, m) => s + m.hints, 0);
 
   return (
     <div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:14, marginBottom:24 }}>
-        <StatCard icon={<Icons.chat s={20} c="#a855f7"/>} label="Total messages" value="1.2M" change="8%" positive color="#a855f7"/>
-        <StatCard icon={<Icons.mail s={20} c="#38bdf8"/>} label="Sent today" value="3,420" change="12%" positive color="#38bdf8"/>
-        <StatCard icon={<MaskIcon size={20} color="#ffcd3c"/>} label="Hints bought" value="89" change="18%" positive color="#ffcd3c"/>
-        <StatCard icon={<Icons.flag s={20} c="#ef4444"/>} label="Flagged today" value="12" color="#ef4444"/>
+        <StatCard icon={<Icons.chat s={20} c="#a855f7"/>} label="Total messages" value={msgs.length.toLocaleString()} color="#a855f7"/>
+        <StatCard icon={<MaskIcon size={20} color="#ffcd3c"/>} label="Hints unlocked" value={String(hintsTotal)} color="#ffcd3c"/>
+        <StatCard icon={<Icons.flag s={20} c="#ef4444"/>} label="Flagged" value={String(flaggedCount)} color="#ef4444"/>
       </div>
 
       <Card>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
           <p className="syne" style={{ color:"white", fontWeight:700 }}>All messages</p>
           <div style={{ display:"flex", gap:8 }}>
-            <Badge text="All" color="#888"/>
-            <Badge text="Flagged (12)" color="#ef4444" icon={<Icons.flag s={11} c="#ef4444"/>}/>
+            <button onClick={()=>setShowFlaggedOnly(false)} style={{ background:"none", border:"none", cursor:"pointer", padding:0 }}><Badge text="All" color={showFlaggedOnly?"#888":"#ff5c3a"}/></button>
+            <button onClick={()=>setShowFlaggedOnly(true)} style={{ background:"none", border:"none", cursor:"pointer", padding:0 }}><Badge text={`Flagged (${flaggedCount})`} color="#ef4444" icon={<Icons.flag s={11} c="#ef4444"/>}/></button>
           </div>
         </div>
-        {msgs.map((m,i) => (
-          <div key={i} className="row-hover" style={{ display:"flex", gap:12, padding:"14px 10px", borderRadius:10, borderBottom:i<msgs.length-1?"1px solid rgba(255,255,255,0.05)":"none", alignItems:"center", transition:"background 0.15s" }}>
+        {loading && <p style={{ color:"rgba(255,255,255,0.3)", padding:"20px 8px", fontSize:"0.85rem" }}>Loading messages...</p>}
+        {!loading && visible.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", padding:"20px 8px", fontSize:"0.85rem" }}>No messages found.</p>}
+        {visible.map((m,i) => (
+          <div key={m.id} className="row-hover" style={{ display:"flex", gap:12, padding:"14px 10px", borderRadius:10, borderBottom:i<visible.length-1?"1px solid rgba(255,255,255,0.05)":"none", alignItems:"center", transition:"background 0.15s" }}>
             <div style={{ width:36, height:36, borderRadius:"50%", background:"rgba(255,255,255,0.06)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}><MaskIcon size={16} color="rgba(255,255,255,0.5)"/></div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:3 }}>
@@ -617,7 +858,7 @@ const Messages = () => {
             </div>
             <div style={{ display:"flex", gap:6, flexShrink:0 }}>
               <span style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem" }}>{m.time}</span>
-              {m.flagged && <button style={{ padding:"5px 10px", borderRadius:6, border:"none", background:"#ef4444", color:"white", cursor:"pointer", fontSize:"0.72rem", fontWeight:600 }}>Delete</button>}
+              {m.flagged && <button onClick={()=>deleteMessage(m)} style={{ padding:"5px 10px", borderRadius:6, border:"none", background:"#ef4444", color:"white", cursor:"pointer", fontSize:"0.72rem", fontWeight:600 }}>Delete</button>}
             </div>
           </div>
         ))}
@@ -628,52 +869,62 @@ const Messages = () => {
 
 // ─── HINTS ────────────────────────────────────────────────────────────────────
 const Hints = () => {
-  const hintData = [
-    { tier:"Hint 1 — Gender", price:"₦100", sold:18420, revenue:"₦921,000", unmaskr:"₦460,500", users:"₦460,500" },
-    { tier:"Hint 2 — Birth/Relationship", price:"₦150", sold:11230, revenue:"₦684,500", unmaskr:"₦342,250", users:"₦342,250" },
-    { tier:"Hint 3 — Circle/Age/Location", price:"₦200", sold:9270, revenue:"₦854,000", unmaskr:"₦427,000", users:"₦427,000" },
-  ];
+  const [loading, setLoading] = useState(true);
+  const [totalSold, setTotalSold] = useState(0);
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const [weekData, setWeekData] = useState([]);
+
+  useEffect(() => { fetchHints(); }, []);
+
+  const fetchHints = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from("transactions")
+      .select("amount, created_at")
+      .eq("type", "hint_purchase")
+      .eq("status", "completed");
+
+    const rows = data || [];
+    setTotalSold(rows.length);
+    setTotalRevenue(rows.reduce((s,t)=>s+Number(t.amount),0));
+
+    const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+    const buckets = [...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); return d; });
+    setWeekData(buckets.map((d,i) => ({
+      day: days[i],
+      hints: rows.filter(t=>new Date(t.created_at).toDateString()===d.toDateString()).length,
+    })));
+    setLoading(false);
+  };
+
+  const unmaskrShare = totalRevenue * 0.5;
 
   return (
     <div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:14, marginBottom:24 }}>
-        <StatCard icon={<MaskIcon size={20} color="#ffcd3c"/>} label="Total hints sold" value="38,920" change="18%" positive color="#ffcd3c"/>
-        <StatCard icon={<Icons.money s={20} c="#ff5c3a"/>} label="Total hint revenue" value="₦2.46M" change="22%" positive color="#ff5c3a"/>
-        <StatCard icon={<Icons.bank s={20} c="#22c55e"/>} label="Unmaskr earned" value="₦1.23M" change="22%" positive color="#22c55e"/>
-        <StatCard icon={<Icons.user s={20} c="#38bdf8"/>} label="Paid to users" value="₦1.23M" change="22%" positive color="#38bdf8"/>
+        <StatCard icon={<MaskIcon size={20} color="#ffcd3c"/>} label="Total hints sold" value={totalSold.toLocaleString()} color="#ffcd3c"/>
+        <StatCard icon={<Icons.money s={20} c="#ff5c3a"/>} label="Total hint revenue" value={`₦${totalRevenue.toLocaleString()}`} color="#ff5c3a"/>
+        <StatCard icon={<Icons.bank s={20} c="#22c55e"/>} label="Unmaskr earned" value={`₦${unmaskrShare.toLocaleString()}`} color="#22c55e"/>
+        <StatCard icon={<Icons.user s={20} c="#38bdf8"/>} label="Paid to users" value={`₦${unmaskrShare.toLocaleString()}`} color="#38bdf8"/>
       </div>
-
-      <Card style={{ marginBottom:20 }}>
-        <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Hint performance by tier</p>
-        <div style={{ overflowX:"auto" }}>
-          <table style={{ width:"100%", borderCollapse:"collapse" }}>
-            <thead>
-              <tr>
-                {["Hint Tier","Price","Sold","Total Revenue","Unmaskr (50%)","Users (50%)"].map(h => (
-                  <th key={h} style={{ padding:"10px 14px", textAlign:"left", fontSize:"0.72rem", fontWeight:600, color:"rgba(255,255,255,0.35)", textTransform:"uppercase", letterSpacing:"0.08em", borderBottom:"1px solid rgba(255,255,255,0.06)", whiteSpace:"nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {hintData.map((h,i) => (
-                <tr key={i} className="row-hover" style={{ borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
-                  <td style={{ padding:"14px", color:"white", fontSize:"0.85rem", fontWeight:500 }}>{h.tier}</td>
-                  <td style={{ padding:"14px" }}><Badge text={h.price} color="#ffcd3c"/></td>
-                  <td style={{ padding:"14px", color:"rgba(255,255,255,0.7)", fontSize:"0.85rem" }}>{h.sold.toLocaleString()}</td>
-                  <td style={{ padding:"14px", color:"white", fontSize:"0.85rem", fontWeight:600 }}>{h.revenue}</td>
-                  <td style={{ padding:"14px", color:"#22c55e", fontSize:"0.85rem" }}>{h.unmaskr}</td>
-                  <td style={{ padding:"14px", color:"#38bdf8", fontSize:"0.85rem" }}>{h.users}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
+        Shown as one combined total — there's no column tracking which specific tier (1/2/3) each purchase was, so a per-tier breakdown isn't possible without adding one.
+      </p>
 
       <Card>
-        <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:6 }}>Hint sales this week</p>
+        <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:6 }}>Hint sales, last 7 days</p>
         <p style={{ color:"rgba(255,255,255,0.35)", fontSize:"0.82rem", marginBottom:18 }}>Daily breakdown</p>
-        <BarChart data={[320,280,410,390,520,480,610]} labels={["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]} color="#ffcd3c" height={100}/>
+        {loading ? <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>Loading...</p> : (
+        <ResponsiveContainer width="100%" height={220}>
+          <RBarChart data={weekData} margin={{ top:5, right:5, left:-20, bottom:5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
+            <XAxis dataKey="day" stroke="rgba(255,255,255,0.3)" fontSize={12}/>
+            <YAxis stroke="rgba(255,255,255,0.3)" fontSize={12} allowDecimals={false}/>
+            <RTooltip contentStyle={{ background:"#1a1a1a", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, color:"white" }}/>
+            <Bar dataKey="hints" fill="#ffcd3c" radius={[4,4,0,0]}/>
+          </RBarChart>
+        </ResponsiveContainer>
+        )}
       </Card>
     </div>
   );
@@ -723,59 +974,113 @@ const GamesAdmin = () => (
 
 // ─── DEPOSITS ─────────────────────────────────────────────────────────────────
 // Admin manually confirms deposits for now (business account, testing phase —
-// no automated Paystack webhook yet). Confirming a deposit here is the trigger
-// point for crediting the user's wallet AND sending the "deposit confirmed" email.
+// no automated Paystack webhook yet). Confirming a deposit credits the user's
+// wallet and sends the "deposit confirmed" email in one action.
 const Deposits = () => {
   const [tab, setTab] = useState("pending");
-  const [pending, setPending] = useState([
-    { id:1, user:"@sade_ng", name:"Sade Nwosu", method:"Bank transfer", reference:"TRX-88213", amount:"₦2,000", requested:"Jul 7, 3:40 PM" },
-    { id:2, user:"@temi_xx", name:"Temi Adeyemi", method:"Bank transfer", reference:"TRX-88190", amount:"₦5,000", requested:"Jul 7, 1:15 PM" },
-    { id:3, user:"@femi_b", name:"Femi Bello", method:"Bank transfer", reference:"TRX-88144", amount:"₦1,500", requested:"Jul 6, 6:20 PM" },
-  ]);
-  const [completed, setCompleted] = useState([
-    { user:"@kolade_f", name:"Kolade Femi", amount:"₦3,000", date:"Jul 5" },
-    { user:"@david_a", name:"David Ama", amount:"₦1,000", date:"Jul 4" },
-  ]);
+  const [pending, setPending] = useState([]);
+  const [completed, setCompleted] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [confirmingId, setConfirmingId] = useState(null);
   const [justConfirmed, setJustConfirmed] = useState(null);
+
+  useEffect(() => { fetchDeposits(); }, []);
+
+  const fetchDeposits = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("transactions")
+      .select("id, user_id, amount, reference, status, created_at")
+      .eq("type", "deposit")
+      .order("created_at", { ascending: false });
+
+    if (error || !data) { setLoading(false); return; }
+
+    const userIds = [...new Set(data.map(t => t.user_id))];
+    const { data: profilesData } = await supabase
+      .from("profiles")
+      .select("id, name, username, email")
+      .in("id", userIds);
+    const profileById = Object.fromEntries((profilesData || []).map(p => [p.id, p]));
+
+    const rows = data.map(t => ({
+      id: t.id,
+      userId: t.user_id,
+      user: `@${profileById[t.user_id]?.username || "unknown"}`,
+      name: profileById[t.user_id]?.name || "Unknown",
+      email: profileById[t.user_id]?.email || null,
+      method: "Bank transfer",
+      reference: t.reference || "—",
+      amount: `₦${Number(t.amount).toLocaleString()}`,
+      rawAmount: Number(t.amount),
+      requested: new Date(t.created_at).toLocaleString("en-NG", { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" }),
+      date: new Date(t.created_at).toLocaleDateString("en-NG", { month:"short", day:"numeric" }),
+      status: t.status,
+    }));
+
+    setPending(rows.filter(r => r.status === "pending"));
+    setCompleted(rows.filter(r => r.status === "completed"));
+    setLoading(false);
+  };
 
   const confirmDeposit = async (dep) => {
     setConfirmingId(dep.id);
 
-    // ── TODO (real Supabase wiring, once table schema is confirmed): ──
-    // 1. Update the deposit/transaction row: status -> 'confirmed'
-    // 2. Credit dep.amount to the user's wallet balance (profiles/wallets table)
-    // 3. Send the confirmation email via the send-email Edge Function:
-    //
-    //    await supabase.functions.invoke('send-email', {
-    //      body: {
-    //        to: userEmail,          // pull from the user's profile/auth record
-    //        toName: dep.name,
-    //        subject: "Your deposit has been confirmed",
-    //        htmlContent: `<p>Hi ${dep.name},</p><p>Your deposit of ${dep.amount} has been confirmed and added to your Unmaskr wallet.</p>`
-    //      }
-    //    });
+    // 1. Mark the transaction confirmed
+    const { error: txError } = await supabase
+      .from("transactions")
+      .update({ status: "completed" })
+      .eq("id", dep.id);
 
-    // Simulated for now so the UI is testable before Supabase is wired in:
-    await new Promise(r => setTimeout(r, 600));
+    if (txError) { setConfirmingId(null); return; }
+
+    // 2. Credit the user's wallet (read-then-write — fine at admin/manual
+    // volume; move to an atomic RPC if this ever needs to handle concurrent
+    // confirmations)
+    const { data: wallet } = await supabase
+      .from("wallets")
+      .select("balance")
+      .eq("user_id", dep.userId)
+      .single();
+
+    if (wallet) {
+      await supabase
+        .from("wallets")
+        .update({ balance: Number(wallet.balance) + dep.rawAmount, updated_at: new Date().toISOString() })
+        .eq("user_id", dep.userId);
+    }
+
+    // 3. Email the user, if we have an address on file
+    if (dep.email) {
+      await supabase.functions.invoke("send-email", {
+        body: {
+          to: dep.email,
+          toName: dep.name,
+          subject: "Your deposit has been confirmed",
+          htmlContent: `<p>Hi ${dep.name},</p><p>Your deposit of ${dep.amount} has been confirmed and added to your Unmaskr wallet.</p>`
+        }
+      });
+    }
+
     setPending(p => p.filter(x => x.id !== dep.id));
-    setCompleted(c => [{ user:dep.user, name:dep.name, amount:dep.amount, date:"Just now" }, ...c]);
+    setCompleted(c => [{ ...dep, status:"completed", date:"Just now" }, ...c]);
     setConfirmingId(null);
     setJustConfirmed(dep.id);
     setTimeout(() => setJustConfirmed(null), 2500);
   };
 
-  const rejectDeposit = (dep) => {
-    setPending(p => p.filter(x => x.id !== dep.id));
+  const rejectDeposit = async (dep) => {
+    const { error } = await supabase.from("transactions").update({ status: "rejected" }).eq("id", dep.id);
+    if (!error) setPending(p => p.filter(x => x.id !== dep.id));
   };
+
+  const pendingTotal = pending.reduce((s,d) => s + d.rawAmount, 0);
 
   return (
     <div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:14, marginBottom:24 }}>
-        <StatCard icon={<Icons.clock s={20} c="#ffcd3c"/>} label="Pending" value={`₦${pending.reduce((s,d)=>s+Number(d.amount.replace(/[₦,]/g,"")),0).toLocaleString()}`} color="#ffcd3c"/>
-        <StatCard icon={<Icons.check s={20} c="#22c55e"/>} label="Confirmed today" value="₦48,000" change="3" positive color="#22c55e"/>
-        <StatCard icon={<Icons.calendar s={20} c="#38bdf8"/>} label="Confirmed this month" value="₦960K" color="#38bdf8"/>
-        <StatCard icon={<Icons.hash s={20} c="#a855f7"/>} label="Requests today" value={String(pending.length)} color="#a855f7"/>
+        <StatCard icon={<Icons.clock s={20} c="#ffcd3c"/>} label="Pending" value={`₦${pendingTotal.toLocaleString()}`} color="#ffcd3c"/>
+        <StatCard icon={<Icons.hash s={20} c="#a855f7"/>} label="Pending requests" value={String(pending.length)} color="#a855f7"/>
       </div>
 
       <div style={{ display:"flex", gap:8, marginBottom:16 }}>
@@ -785,7 +1090,8 @@ const Deposits = () => {
       </div>
 
       <Card>
-        {tab === "pending" ? (
+        {loading && <p style={{ color:"rgba(255,255,255,0.3)", padding:"20px 8px", fontSize:"0.85rem" }}>Loading deposits...</p>}
+        {!loading && tab === "pending" ? (
           <>
             <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:6 }}>Pending deposits ({pending.length})</p>
             <p style={{ color:"rgba(255,255,255,0.35)", fontSize:"0.78rem", marginBottom:18 }}>Verify the transfer landed in your business account before confirming — this credits the user's wallet and emails them.</p>
@@ -812,11 +1118,12 @@ const Deposits = () => {
               </div>
             ))}
           </>
-        ) : (
+        ) : !loading && (
           <>
             <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Completed deposits</p>
+            {completed.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem", padding:"20px 8px" }}>No completed deposits yet.</p>}
             {completed.map((d,i) => (
-              <div key={i} className="row-hover" style={{ display:"flex", gap:12, alignItems:"center", padding:"14px 10px", borderRadius:10, borderBottom:i<completed.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
+              <div key={d.id} className="row-hover" style={{ display:"flex", gap:12, alignItems:"center", padding:"14px 10px", borderRadius:10, borderBottom:i<completed.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
                 <div style={{ flex:1 }}>
                   <p style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>{d.name} <span style={{ color:"rgba(255,255,255,0.35)", fontWeight:400 }}>{d.user}</span></p>
                   <p style={{ color:"rgba(255,255,255,0.35)", fontSize:"0.75rem", marginTop:2 }}>{d.date}</p>
@@ -835,24 +1142,82 @@ const Deposits = () => {
 // ─── WITHDRAWALS ──────────────────────────────────────────────────────────────
 const Withdrawals = () => {
   const [tab, setTab] = useState("pending");
-  const pending = [
-    { user:"@sade_ng", name:"Sade Nwosu", bank:"GTBank", account:"0123456789", amount:"₦2,000", requested:"Jun 25, 2:14 PM" },
-    { user:"@temi_xx", name:"Temi Adeyemi", bank:"Access Bank", account:"9876543210", amount:"₦5,500", requested:"Jun 25, 11:02 AM" },
-    { user:"@femi_b", name:"Femi Bello", bank:"Kuda", account:"1122334455", amount:"₦800", requested:"Jun 24, 6:45 PM" },
-    { user:"@grace_o", name:"Grace Okon", bank:"Opay", account:"5544332211", amount:"₦1,200", requested:"Jun 24, 4:30 PM" },
-  ];
-  const completed = [
-    { user:"@kolade_f", name:"Kolade Femi", bank:"Zenith Bank", amount:"₦3,000", date:"Jun 23" },
-    { user:"@david_a", name:"David Ama", bank:"First Bank", amount:"₦500", date:"Jun 22" },
-  ];
+  const [pending, setPending] = useState([]);
+  const [completed, setCompleted] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [payingId, setPayingId] = useState(null);
+
+  useEffect(() => { fetchWithdrawals(); }, []);
+
+  const fetchWithdrawals = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("transactions")
+      .select("id, user_id, amount, bank_name, account_number, status, created_at")
+      .eq("type", "withdrawal")
+      .order("created_at", { ascending: false });
+
+    if (error || !data) { setLoading(false); return; }
+
+    const userIds = [...new Set(data.map(t => t.user_id))];
+    const { data: profilesData } = await supabase
+      .from("profiles")
+      .select("id, name, username, email")
+      .in("id", userIds);
+    const profileById = Object.fromEntries((profilesData || []).map(p => [p.id, p]));
+
+    const rows = data.map(t => ({
+      id: t.id,
+      userId: t.user_id,
+      user: `@${profileById[t.user_id]?.username || "unknown"}`,
+      name: profileById[t.user_id]?.name || "Unknown",
+      email: profileById[t.user_id]?.email || null,
+      bank: t.bank_name || "—",
+      account: t.account_number || "—",
+      amount: `₦${Number(t.amount).toLocaleString()}`,
+      requested: new Date(t.created_at).toLocaleString("en-NG", { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" }),
+      date: new Date(t.created_at).toLocaleDateString("en-NG", { month:"short", day:"numeric" }),
+      status: t.status,
+    }));
+
+    setPending(rows.filter(r => r.status === "pending"));
+    setCompleted(rows.filter(r => r.status === "completed"));
+    setLoading(false);
+  };
+
+  const payWithdrawal = async (w) => {
+    setPayingId(w.id);
+
+    const { error } = await supabase.from("transactions").update({ status: "completed" }).eq("id", w.id);
+    if (!error) {
+      if (w.email) {
+        await supabase.functions.invoke("send-email", {
+          body: {
+            to: w.email,
+            toName: w.name,
+            subject: "Your withdrawal has been paid",
+            htmlContent: `<p>Hi ${w.name},</p><p>Your withdrawal of ${w.amount} has been sent to your ${w.bank} account ending in ${w.account.slice(-4)}.</p>`
+          }
+        });
+      }
+      setPending(p => p.filter(x => x.id !== w.id));
+      setCompleted(c => [{ ...w, status:"completed", date:"Just now" }, ...c]);
+    }
+    setPayingId(null);
+  };
+
+  const rejectWithdrawal = async (w) => {
+    const { error } = await supabase.from("transactions").update({ status: "rejected" }).eq("id", w.id);
+    if (!error) setPending(p => p.filter(x => x.id !== w.id));
+  };
+
+  const pendingTotal = pending.reduce((s,w) => s + Number(w.amount.replace(/[₦,]/g,"")), 0);
 
   return (
     <div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:14, marginBottom:24 }}>
-        <StatCard icon={<Icons.clock s={20} c="#ffcd3c"/>} label="Pending" value="₦182,000" color="#ffcd3c"/>
-        <StatCard icon={<Icons.check s={20} c="#22c55e"/>} label="Paid today" value="₦48,000" change="3" positive color="#22c55e"/>
-        <StatCard icon={<Icons.calendar s={20} c="#38bdf8"/>} label="Paid this month" value="₦1.2M" color="#38bdf8"/>
-        <StatCard icon={<Icons.hash s={20} c="#a855f7"/>} label="Requests today" value="23" color="#a855f7"/>
+        <StatCard icon={<Icons.clock s={20} c="#ffcd3c"/>} label="Pending" value={`₦${pendingTotal.toLocaleString()}`} color="#ffcd3c"/>
+        <StatCard icon={<Icons.hash s={20} c="#a855f7"/>} label="Pending requests" value={String(pending.length)} color="#a855f7"/>
       </div>
 
       <div style={{ display:"flex", gap:8, marginBottom:16 }}>
@@ -862,28 +1227,31 @@ const Withdrawals = () => {
       </div>
 
       <Card>
-        {tab === "pending" ? (
+        {loading && <p style={{ color:"rgba(255,255,255,0.3)", padding:"20px 8px", fontSize:"0.85rem" }}>Loading withdrawals...</p>}
+        {!loading && tab === "pending" ? (
           <>
             <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Pending withdrawals ({pending.length})</p>
+            {pending.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem", padding:"20px 8px" }}>No pending withdrawals.</p>}
             {pending.map((w,i) => (
-              <div key={i} className="row-hover" style={{ display:"flex", gap:12, alignItems:"center", padding:"14px 10px", borderRadius:10, borderBottom:i<pending.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
-                <div style={{ flex:1 }}>
+              <div key={w.id} className="row-hover" style={{ display:"flex", gap:12, alignItems:"center", padding:"14px 10px", borderRadius:10, borderBottom:i<pending.length-1?"1px solid rgba(255,255,255,0.05)":"none", flexWrap:"wrap" }}>
+                <div style={{ flex:1, minWidth:200 }}>
                   <p style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>{w.name} <span style={{ color:"rgba(255,255,255,0.35)", fontWeight:400 }}>{w.user}</span></p>
                   <p style={{ color:"rgba(255,255,255,0.35)", fontSize:"0.75rem", marginTop:2 }}>{w.bank} · {w.account} · {w.requested}</p>
                 </div>
                 <span className="syne" style={{ color:"white", fontWeight:700, fontSize:"1rem" }}>{w.amount}</span>
                 <div style={{ display:"flex", gap:6 }}>
-                  <button style={{ padding:"7px 14px", borderRadius:8, border:"none", background:"#22c55e", color:"white", cursor:"pointer", fontSize:"0.78rem", fontWeight:600, display:"inline-flex", alignItems:"center", gap:5 }}><Icons.check s={12} c="white"/>Pay</button>
-                  <button style={{ padding:"7px 14px", borderRadius:8, border:"1px solid rgba(239,68,68,0.3)", background:"rgba(239,68,68,0.1)", color:"#ef4444", cursor:"pointer", fontSize:"0.78rem" }}>Reject</button>
+                  <button onClick={()=>payWithdrawal(w)} disabled={payingId===w.id} style={{ padding:"7px 14px", borderRadius:8, border:"none", background:"#22c55e", color:"white", cursor:payingId===w.id?"default":"pointer", fontSize:"0.78rem", fontWeight:600, display:"inline-flex", alignItems:"center", gap:5, opacity:payingId===w.id?0.6:1 }}><Icons.check s={12} c="white"/>{payingId===w.id?"Paying...":"Pay"}</button>
+                  <button onClick={()=>rejectWithdrawal(w)} disabled={payingId===w.id} style={{ padding:"7px 14px", borderRadius:8, border:"1px solid rgba(239,68,68,0.3)", background:"rgba(239,68,68,0.1)", color:"#ef4444", cursor:"pointer", fontSize:"0.78rem" }}>Reject</button>
                 </div>
               </div>
             ))}
           </>
-        ) : (
+        ) : !loading && (
           <>
             <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Completed withdrawals</p>
+            {completed.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem", padding:"20px 8px" }}>No completed withdrawals yet.</p>}
             {completed.map((w,i) => (
-              <div key={i} className="row-hover" style={{ display:"flex", gap:12, alignItems:"center", padding:"14px 10px", borderRadius:10, borderBottom:i<completed.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
+              <div key={w.id} className="row-hover" style={{ display:"flex", gap:12, alignItems:"center", padding:"14px 10px", borderRadius:10, borderBottom:i<completed.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
                 <div style={{ flex:1 }}>
                   <p style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>{w.name} <span style={{ color:"rgba(255,255,255,0.35)", fontWeight:400 }}>{w.user}</span></p>
                   <p style={{ color:"rgba(255,255,255,0.35)", fontSize:"0.75rem", marginTop:2 }}>{w.bank} · {w.date}</p>
@@ -910,50 +1278,162 @@ const CANNED_REPLIES = [
 ];
 
 const Complaints = () => {
+  const [complaints, setComplaints] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [replyText, setReplyText] = useState("");
   const [refundAmount, setRefundAmount] = useState("");
   const [refunded, setRefunded] = useState(false);
   const [sentConfirm, setSentConfirm] = useState(false);
   const [resolvedConfirm, setResolvedConfirm] = useState(false);
-  const complaints = [
-    { user:"@grace_o", subject:"Received a threatening message", msg:"Someone sent me a very threatening anonymous message saying they know where I live. I am scared.", status:"open", time:"1h ago", priority:"high" },
-    { user:"@temi_xx", subject:"Payment issue — hint not unlocked", msg:"I paid ₦150 for a hint but the hint never showed. My money was deducted.", status:"open", time:"3h ago", priority:"medium" },
-    { user:"@kolade_f", subject:"Account can't login", msg:"I've been trying to login for 2 days. I reset my password but it still says invalid credentials.", status:"in progress", time:"1d ago", priority:"medium" },
-    { user:"@femi_b", subject:"Fake hint — wrong information", msg:"The hint said the sender may be female but the person told me it was actually a male. This is misleading.", status:"resolved", time:"2d ago", priority:"low" },
-  ];
+
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [investigating, setInvestigating] = useState(false);
+  const [foundMessages, setFoundMessages] = useState(null);
+  const [actionDone, setActionDone] = useState({});
+
+  useEffect(() => { fetchComplaints(); }, []);
+
+  const fetchComplaints = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("complaints")
+      .select("id, user_id, subject, message, status, priority, created_at")
+      .order("created_at", { ascending: false });
+    if (error || !data) { setLoading(false); return; }
+
+    const userIds = [...new Set(data.map(c => c.user_id))];
+    const { data: profilesData } = userIds.length ? await supabase.from("profiles").select("id, username, email").in("id", userIds) : { data: [] };
+    const profileById = Object.fromEntries((profilesData||[]).map(p=>[p.id,p]));
+
+    setComplaints(data.map(c => ({
+      id: c.id,
+      userId: c.user_id,
+      user: `@${profileById[c.user_id]?.username || "unknown"}`,
+      email: profileById[c.user_id]?.email || null,
+      subject: c.subject,
+      msg: c.message,
+      status: c.status,
+      priority: c.priority,
+      time: timeAgo(c.created_at),
+    })));
+    setLoading(false);
+  };
+
   const statusColor = { open:"#ef4444", "in progress":"#ffcd3c", resolved:"#22c55e" };
   const priorityColor = { high:"#ef4444", medium:"#ffcd3c", low:"#22c55e" };
 
   const selectComplaint = c => {
     setSelected(c);
-    setReplyText("");
-    setRefundAmount("");
-    setRefunded(false);
-    setSentConfirm(false);
-    setResolvedConfirm(false);
+    setReplyText(""); setRefundAmount(""); setRefunded(false);
+    setSentConfirm(false); setResolvedConfirm(false);
+    setFoundMessages(null); setFromDate(""); setToDate(""); setActionDone({});
+    setComplainantSuspended(false);
   };
 
-  const applyRefund = () => {
-    if(!refundAmount) return;
+  const applyRefund = async () => {
+    if (!refundAmount || !selected) return;
+    const { data: wallet } = await supabase.from("wallets").select("balance").eq("user_id", selected.userId).single();
+    if (wallet) {
+      await supabase.from("wallets").update({ balance: Number(wallet.balance) + Number(refundAmount), updated_at: new Date().toISOString() }).eq("user_id", selected.userId);
+    }
     setRefunded(true);
-    setReplyText(t => `We've refunded ₦${Number(refundAmount).toLocaleString()} to your Unmaskr wallet — it should reflect immediately. We're sorry for the inconvenience and appreciate your patience.`);
+    setReplyText(`We've added ₦${Number(refundAmount).toLocaleString()} to your Unmaskr wallet — it should reflect immediately. We're sorry for the inconvenience and appreciate your patience.`);
   };
+
+  const sendReply = async () => {
+    if (!replyText.trim() || !selected) return;
+    await supabase.from("complaints").update({ status: "in progress" }).eq("id", selected.id);
+    if (selected.email) {
+      await supabase.functions.invoke("send-email", {
+        body: { to: selected.email, toName: selected.user, subject: `Re: ${selected.subject}`, htmlContent: `<p>${replyText}</p>` }
+      });
+    }
+    setComplaints(prev => prev.map(c => c.id === selected.id ? { ...c, status: "in progress" } : c));
+    setSentConfirm(true);
+    setTimeout(() => setSentConfirm(false), 2500);
+  };
+
+  const markResolved = async () => {
+    if (!selected) return;
+    await supabase.from("complaints").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", selected.id);
+    setComplaints(prev => prev.map(c => c.id === selected.id ? { ...c, status: "resolved" } : c));
+    setResolvedConfirm(true);
+    setTimeout(() => setResolvedConfirm(false), 2500);
+  };
+
+  // De-anonymized investigation: find real senders of messages to this user
+  // in a date range, using messages.sender_email (recipients never see this,
+  // but admin can, for abuse investigation).
+  const investigate = async () => {
+    if (!selected) return;
+    setInvestigating(true);
+    let query = supabase
+      .from("messages")
+      .select("id, text, sender_email, created_at")
+      .eq("recipient_id", selected.userId)
+      .order("created_at", { ascending: false });
+    if (fromDate) query = query.gte("created_at", fromDate);
+    if (toDate) query = query.lte("created_at", toDate + "T23:59:59");
+    const { data, error } = await query;
+    setFoundMessages(error || !data ? [] : data);
+    setInvestigating(false);
+  };
+
+  const emailSender = async (msg) => {
+    if (!msg.sender_email) return;
+    await supabase.functions.invoke("send-email", {
+      body: {
+        to: msg.sender_email,
+        toName: "there",
+        subject: "About a message you sent on Unmaskr",
+        htmlContent: `<p>Hi,</p><p>We received a complaint about a message sent from this email address on Unmaskr. Please review our community guidelines — further reports may result in account suspension.</p>`
+      }
+    });
+    setActionDone(prev => ({ ...prev, [msg.id]: "emailed" }));
+  };
+
+  const suspendSender = async (msg) => {
+    if (!msg.sender_email) return;
+    const { data: senderProfile } = await supabase.from("profiles").select("id").eq("email", msg.sender_email).maybeSingle();
+    if (!senderProfile) { setActionDone(prev => ({ ...prev, [msg.id]: "no-account" })); return; }
+    await supabase.from("profiles").update({ status: "suspended" }).eq("id", senderProfile.id);
+    setActionDone(prev => ({ ...prev, [msg.id]: "suspended" }));
+  };
+
+  const deleteMessage = async (msg) => {
+    const { error } = await supabase.from("messages").delete().eq("id", msg.id);
+    if (!error) {
+      setFoundMessages(prev => prev.filter(m => m.id !== msg.id));
+    }
+  };
+
+  const [complainantSuspended, setComplainantSuspended] = useState(false);
+  const suspendComplainant = async () => {
+    if (!selected) return;
+    await supabase.from("profiles").update({ status: "suspended" }).eq("id", selected.userId);
+    setComplainantSuspended(true);
+  };
+
+  const openCount = complaints.filter(c=>c.status==="open").length;
+  const inProgressCount = complaints.filter(c=>c.status==="in progress").length;
 
   return (
     <div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:14, marginBottom:24 }}>
-        <StatCard icon={<Icons.flag s={20} c="#ef4444"/>} label="Open" value="8" color="#ef4444"/>
-        <StatCard icon={<Icons.clock s={20} c="#ffcd3c"/>} label="In progress" value="3" color="#ffcd3c"/>
-        <StatCard icon={<Icons.check s={20} c="#22c55e"/>} label="Resolved today" value="5" color="#22c55e"/>
-        <StatCard icon={<Icons.chart s={20} c="#a855f7"/>} label="Total all time" value="142" color="#a855f7"/>
+        <StatCard icon={<Icons.flag s={20} c="#ef4444"/>} label="Open" value={String(openCount)} color="#ef4444"/>
+        <StatCard icon={<Icons.clock s={20} c="#ffcd3c"/>} label="In progress" value={String(inProgressCount)} color="#ffcd3c"/>
+        <StatCard icon={<Icons.chart s={20} c="#a855f7"/>} label="Total all time" value={String(complaints.length)} color="#a855f7"/>
       </div>
 
       <div style={{ display:"grid", gridTemplateColumns:selected?"1fr 1fr":"1fr", gap:14 }}>
         <Card>
           <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>All complaints</p>
+          {loading && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>Loading...</p>}
+          {!loading && complaints.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>No complaints yet.</p>}
           {complaints.map((c,i) => (
-            <div key={i} onClick={()=>selectComplaint(c)} className="row-hover" style={{ padding:"14px 12px", borderRadius:12, borderBottom:i<complaints.length-1?"1px solid rgba(255,255,255,0.05)":"none", cursor:"pointer", transition:"background 0.15s", background:selected===c?"rgba(255,92,58,0.08)":"transparent" }}>
+            <div key={c.id} onClick={()=>selectComplaint(c)} className="row-hover" style={{ padding:"14px 12px", borderRadius:12, borderBottom:i<complaints.length-1?"1px solid rgba(255,255,255,0.05)":"none", cursor:"pointer", transition:"background 0.15s", background:selected?.id===c.id?"rgba(255,92,58,0.08)":"transparent" }}>
               <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
                 <div style={{ display:"flex", gap:8, alignItems:"center" }}>
                   <span style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>{c.user}</span>
@@ -985,16 +1465,67 @@ const Complaints = () => {
               <p style={{ color:"rgba(255,255,255,0.7)", fontSize:"0.88rem", lineHeight:1.7 }}>{selected.msg}</p>
             </div>
 
-            {/* Refund to wallet — for money-related complaints */}
+            {/* Investigate: see who actually sent this user messages, and act on it */}
+            <div style={{ background:"rgba(56,189,248,0.06)", border:"1px solid rgba(56,189,248,0.15)", borderRadius:12, padding:"14px", marginBottom:20 }}>
+              <p style={{ color:"#38bdf8", fontSize:"0.78rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>Investigate: who messaged this user</p>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:12, alignItems:"center" }}>
+                <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} style={{ padding:"8px 10px", borderRadius:8, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.06)", color:"white", fontSize:"0.78rem", fontFamily:"'DM Sans',sans-serif" }}/>
+                <span style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.78rem" }}>to</span>
+                <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} style={{ padding:"8px 10px", borderRadius:8, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.06)", color:"white", fontSize:"0.78rem", fontFamily:"'DM Sans',sans-serif" }}/>
+                <button onClick={investigate} disabled={investigating} style={{ padding:"8px 14px", borderRadius:8, border:"none", background:"#38bdf8", color:"white", cursor:"pointer", fontSize:"0.78rem", fontWeight:600 }}>{investigating?"Searching...":"Search messages"}</button>
+              </div>
+              {foundMessages !== null && (
+                <div>
+                  {foundMessages.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.8rem" }}>No messages found in that range.</p>}
+                  {foundMessages.map(m => (
+                    <div key={m.id} style={{ background:"rgba(255,255,255,0.04)", borderRadius:10, padding:"12px", marginBottom:8 }}>
+                      <p style={{ color:"white", fontSize:"0.83rem", marginBottom:6, lineHeight:1.5 }}>{m.text}</p>
+                      <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.75rem", marginBottom:8 }}>From: {m.sender_email || "no email on record"} · {timeAgo(m.created_at)}</p>
+                      <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                        {actionDone[m.id] === "emailed" ? (
+                          <span style={{ color:"#22c55e", fontSize:"0.72rem" }}>Emailed sender</span>
+                        ) : actionDone[m.id] === "suspended" ? (
+                          <span style={{ color:"#ef4444", fontSize:"0.72rem" }}>Sender account suspended</span>
+                        ) : actionDone[m.id] === "no-account" ? (
+                          <span style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.72rem" }}>No Unmaskr account tied to this email</span>
+                        ) : (
+                          <>
+                            <button onClick={()=>emailSender(m)} disabled={!m.sender_email} style={{ padding:"5px 10px", borderRadius:6, border:"1px solid rgba(56,189,248,0.3)", background:"rgba(56,189,248,0.1)", color:"#38bdf8", cursor:"pointer", fontSize:"0.72rem" }}>Email sender</button>
+                            <button onClick={()=>suspendSender(m)} disabled={!m.sender_email} style={{ padding:"5px 10px", borderRadius:6, border:"1px solid rgba(239,68,68,0.3)", background:"rgba(239,68,68,0.1)", color:"#ef4444", cursor:"pointer", fontSize:"0.72rem" }}>Suspend sender</button>
+                          </>
+                        )}
+                        <button onClick={()=>deleteMessage(m)} style={{ padding:"5px 10px", borderRadius:6, border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.05)", color:"rgba(255,255,255,0.6)", cursor:"pointer", fontSize:"0.72rem" }}>Delete message</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Add funds to wallet — for overcharges, or confirmed deposits that never reflected */}
             <div style={{ background:"rgba(34,197,94,0.06)", border:"1px solid rgba(34,197,94,0.15)", borderRadius:12, padding:"14px", marginBottom:20 }}>
-              <p style={{ color:"#22c55e", fontSize:"0.78rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>Refund to wallet</p>
+              <p style={{ color:"#22c55e", fontSize:"0.78rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>Add funds to wallet</p>
               {refunded ? (
-                <p style={{ color:"#22c55e", fontSize:"0.85rem", display:"flex", alignItems:"center", gap:6 }}><Icons.check s={14} c="#22c55e"/>₦{Number(refundAmount).toLocaleString()} refunded to {selected.user}'s wallet</p>
+                <p style={{ color:"#22c55e", fontSize:"0.85rem", display:"flex", alignItems:"center", gap:6 }}><Icons.check s={14} c="#22c55e"/>₦{Number(refundAmount).toLocaleString()} added to {selected.user}'s wallet</p>
               ) : (
                 <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                   <input type="number" placeholder="Amount (₦)" value={refundAmount} onChange={e=>setRefundAmount(e.target.value)} style={{ width:120, padding:"9px 12px", borderRadius:8, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.06)", color:"white", outline:"none", fontSize:"0.82rem", fontFamily:"'DM Sans',sans-serif" }}/>
-                  <button onClick={applyRefund} disabled={!refundAmount} style={{ padding:"9px 16px", borderRadius:8, border:"none", background:refundAmount?"#22c55e":"#333", color:"white", cursor:refundAmount?"pointer":"not-allowed", fontSize:"0.8rem", fontWeight:600 }}>Refund & draft reply</button>
+                  <button onClick={applyRefund} disabled={!refundAmount} style={{ padding:"9px 16px", borderRadius:8, border:"none", background:refundAmount?"#22c55e":"#333", color:"white", cursor:refundAmount?"pointer":"not-allowed", fontSize:"0.8rem", fontWeight:600 }}>Add funds & draft reply</button>
                 </div>
+              )}
+              <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.72rem", marginTop:8 }}>Use this for overcharges, or when a deposit was confirmed on your end but never reflected due to a network issue.</p>
+            </div>
+
+            {/* Suspend the complainant — for false/abusive complaints */}
+            <div style={{ background:"rgba(239,68,68,0.06)", border:"1px solid rgba(239,68,68,0.15)", borderRadius:12, padding:"14px", marginBottom:20 }}>
+              <p style={{ color:"#ef4444", fontSize:"0.78rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>Suspend this user</p>
+              {complainantSuspended ? (
+                <p style={{ color:"#ef4444", fontSize:"0.85rem", display:"flex", alignItems:"center", gap:6 }}><Icons.check s={14} c="#ef4444"/>{selected.user}'s account has been suspended</p>
+              ) : (
+                <>
+                  <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem", marginBottom:10 }}>For false or abusive complaints — suspends {selected.user}'s own account, not the sender they're complaining about.</p>
+                  <button onClick={suspendComplainant} style={{ padding:"9px 16px", borderRadius:8, border:"1px solid rgba(239,68,68,0.3)", background:"rgba(239,68,68,0.1)", color:"#ef4444", cursor:"pointer", fontSize:"0.8rem", fontWeight:600 }}>Suspend {selected.user}</button>
+                </>
               )}
             </div>
 
@@ -1007,11 +1538,11 @@ const Complaints = () => {
               </div>
               <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem", marginBottom:8, textTransform:"uppercase", letterSpacing:"0.06em" }}>Reply</p>
               <textarea rows={4} placeholder="Type your response, or click a ready-made reply above..." value={replyText} onChange={e=>setReplyText(e.target.value)} style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.06)", color:"white", resize:"none", fontSize:"0.88rem", fontFamily:"'DM Sans',sans-serif", outline:"none" }}/>
-              <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.72rem", marginTop:6 }}>Nothing sends automatically — you review and click Send.</p>
+              <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.72rem", marginTop:6 }}>Sends a real email to {selected.email || "the user (no email on file)"}.</p>
             </div>
             <div style={{ display:"flex", gap:8 }}>
-              <button onClick={()=>{if(replyText.trim()){setSentConfirm(true);setTimeout(()=>setSentConfirm(false),2500);}}} disabled={!replyText.trim()} style={{ flex:1, padding:"10px", borderRadius:10, border:"none", background:replyText.trim()?"#ff5c3a":"#333", color:"white", cursor:replyText.trim()?"pointer":"not-allowed", fontSize:"0.85rem", fontWeight:600 }}>Send reply</button>
-              <button onClick={()=>{setResolvedConfirm(true);setTimeout(()=>setResolvedConfirm(false),2500);}} style={{ flex:1, padding:"10px", borderRadius:10, border:"1px solid rgba(34,197,94,0.3)", background:"rgba(34,197,94,0.1)", color:"#22c55e", cursor:"pointer", fontSize:"0.85rem", fontWeight:600 }}>Mark resolved</button>
+              <button onClick={sendReply} disabled={!replyText.trim()} style={{ flex:1, padding:"10px", borderRadius:10, border:"none", background:replyText.trim()?"#ff5c3a":"#333", color:"white", cursor:replyText.trim()?"pointer":"not-allowed", fontSize:"0.85rem", fontWeight:600 }}>Send reply</button>
+              <button onClick={markResolved} style={{ flex:1, padding:"10px", borderRadius:10, border:"1px solid rgba(34,197,94,0.3)", background:"rgba(34,197,94,0.1)", color:"#22c55e", cursor:"pointer", fontSize:"0.85rem", fontWeight:600 }}>Mark resolved</button>
             </div>
             {sentConfirm && <p style={{ textAlign:"center", marginTop:10, color:"#22c55e", fontSize:"0.82rem", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}><Icons.check s={14} c="#22c55e"/>Reply emailed to {selected.user}</p>}
             {resolvedConfirm && <p style={{ textAlign:"center", marginTop:10, color:"#22c55e", fontSize:"0.82rem", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}><Icons.check s={14} c="#22c55e"/>Marked as resolved</p>}
@@ -1094,58 +1625,92 @@ const PushNotifications = () => {
 };
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
-const AdminSettings = ({ onLogout }) => (
-  <div>
-    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
-      <Card>
-        <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Platform settings</p>
-        {[
-          { label:"Maintenance mode", desc:"Temporarily disable the app for all users", on:false },
-          { label:"New signups", desc:"Allow new users to register", on:true },
-          { label:"Hint purchases", desc:"Allow hint purchases", on:true },
-          { label:"Games", desc:"Enable games section", on:true },
-          { label:"Withdrawals", desc:"Allow users to withdraw funds", on:true },
-          { label:"Stake & Win", desc:"Enable 18+ staking game", on:true },
-        ].map(s => (
-          <div key={s.label} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
-            <div>
-              <p style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>{s.label}</p>
-              <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.75rem" }}>{s.desc}</p>
-            </div>
-            <div style={{ width:40, height:22, borderRadius:50, background:s.on?"#22c55e":"#333", position:"relative", cursor:"pointer", flexShrink:0 }}>
-              <div style={{ width:16, height:16, borderRadius:"50%", background:"white", position:"absolute", top:3, left:s.on?21:3, transition:"left 0.2s" }}/>
-            </div>
-          </div>
-        ))}
-      </Card>
+const AdminSettings = ({ onLogout, adminEmail }) => {
+  const [settings, setSettings] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(null);
 
-      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+  useEffect(() => { fetchSettings(); }, []);
+
+  const fetchSettings = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("platform_settings").select("*").eq("id", 1).single();
+    setSettings(data);
+    setLoading(false);
+  };
+
+  const toggle = async (field) => {
+    if (!settings || saving) return;
+    setSaving(field);
+    const newValue = !settings[field];
+    const { error } = await supabase.from("platform_settings").update({ [field]: newValue, updated_at: new Date().toISOString() }).eq("id", 1);
+    if (!error) setSettings(s => ({ ...s, [field]: newValue }));
+    setSaving(null);
+  };
+
+  const toggleRows = [
+    { key:"maintenance_mode", label:"Maintenance mode", desc:"Temporarily disable the app for all users" },
+    { key:"new_signups_enabled", label:"New signups", desc:"Allow new users to register" },
+    { key:"hint_purchases_enabled", label:"Hint purchases", desc:"Allow hint purchases" },
+    { key:"withdrawals_enabled", label:"Withdrawals", desc:"Allow users to withdraw funds" },
+    { key:"mystery_lobby_frozen", label:"Freeze Mystery Lobby", desc:"Stop new Mystery Lobby games from starting", invert:true },
+    { key:"stake_win_frozen", label:"Freeze Stake & Win", desc:"Stop new Stake & Win games from starting", invert:true },
+  ];
+
+  return (
+    <div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
         <Card>
-          <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:16 }}>Revenue split</p>
-          {[
-            { label:"Hint revenue to Unmaskr", value:"50%" },
-            { label:"Hint revenue to user", value:"50%" },
-            { label:"Stake & Win fee", value:"15%" },
-            { label:"Min withdrawal", value:"₦500" },
-          ].map(r => (
-            <div key={r.label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
-              <span style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.83rem" }}>{r.label}</span>
-              <span className="syne" style={{ color:"#ffcd3c", fontSize:"0.9rem", fontWeight:700 }}>{r.value}</span>
-            </div>
-          ))}
+          <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:6 }}>Platform settings</p>
+          <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.72rem", marginBottom:18 }}>
+            These flags are saved for real — but your main app needs to be updated to actually check and obey them (e.g. block signup when "New signups" is off).
+          </p>
+          {loading && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>Loading...</p>}
+          {!loading && settings && toggleRows.map(s => {
+            // For "frozen" flags, the toggle should show ON when frozen (i.e. the switch means "freeze is active")
+            const isOn = settings[s.key];
+            return (
+              <div key={s.key} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
+                <div>
+                  <p style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>{s.label}</p>
+                  <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.75rem" }}>{s.desc}</p>
+                </div>
+                <div onClick={()=>toggle(s.key)} style={{ width:40, height:22, borderRadius:50, background:isOn?(s.invert?"#ef4444":"#22c55e"):"#333", position:"relative", cursor:saving===s.key?"default":"pointer", flexShrink:0, opacity:saving===s.key?0.6:1, transition:"background 0.2s" }}>
+                  <div style={{ width:16, height:16, borderRadius:"50%", background:"white", position:"absolute", top:3, left:isOn?21:3, transition:"left 0.2s" }}/>
+                </div>
+              </div>
+            );
+          })}
         </Card>
 
-        <Card>
-          <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:16 }}>Admin account</p>
-          <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.83rem", marginBottom:16 }}>admin@unmaskr.com</p>
-          <button style={{ width:"100%", padding:"10px", borderRadius:10, border:"1px solid rgba(239,68,68,0.3)", background:"rgba(239,68,68,0.08)", color:"#ef4444", cursor:"pointer", fontSize:"0.85rem", fontWeight:600 }} onClick={onLogout}>
-            Sign out
-          </button>
-        </Card>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          <Card>
+            <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:16 }}>Revenue split</p>
+            {[
+              { label:"Hint revenue to Unmaskr", value:"50%" },
+              { label:"Hint revenue to user", value:"50%" },
+              { label:"Stake & Win fee", value:"15%" },
+              { label:"Min withdrawal", value:"₦500" },
+            ].map(r => (
+              <div key={r.label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
+                <span style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.83rem" }}>{r.label}</span>
+                <span className="syne" style={{ color:"#ffcd3c", fontSize:"0.9rem", fontWeight:700 }}>{r.value}</span>
+              </div>
+            ))}
+          </Card>
+
+          <Card>
+            <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:16 }}>Admin account</p>
+            <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.83rem", marginBottom:16 }}>{adminEmail || "—"}</p>
+            <button style={{ width:"100%", padding:"10px", borderRadius:10, border:"1px solid rgba(239,68,68,0.3)", background:"rgba(239,68,68,0.08)", color:"#ef4444", cursor:"pointer", fontSize:"0.85rem", fontWeight:600 }} onClick={onLogout}>
+              Sign out
+            </button>
+          </Card>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function AdminApp() {
@@ -1153,6 +1718,7 @@ export default function AdminApp() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [active, setActive] = useState("overview");
   const [collapsed, setCollapsed] = useState(window.innerWidth < 768);
+  const [adminEmail, setAdminEmail] = useState("");
 
   // On load, check if there's already a valid admin session (so refreshing
   // the page doesn't force a re-login every time).
@@ -1165,7 +1731,7 @@ export default function AdminApp() {
           .select("id")
           .eq("user_id", session.user.id)
           .maybeSingle();
-        if (adminRow) setLoggedIn(true);
+        if (adminRow) { setLoggedIn(true); setAdminEmail(session.user.email || ""); }
         else await supabase.auth.signOut();
       }
       setCheckingSession(false);
@@ -1176,6 +1742,7 @@ export default function AdminApp() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setLoggedIn(false);
+    setAdminEmail("");
   };
 
   const titles = {
@@ -1197,7 +1764,7 @@ export default function AdminApp() {
   if (!loggedIn) return (
     <>
       <GlobalStyles/>
-      <AdminLogin onLogin={() => setLoggedIn(true)}/>
+      <AdminLogin onLogin={(email) => { setLoggedIn(true); setAdminEmail(email || ""); }}/>
     </>
   );
 
@@ -1236,7 +1803,7 @@ export default function AdminApp() {
             {active==="withdrawals"   && <Withdrawals/>}
             {active==="complaints"    && <Complaints/>}
             {active==="notifications" && <PushNotifications/>}
-            {active==="settings"      && <AdminSettings onLogout={handleLogout}/>}
+            {active==="settings"      && <AdminSettings onLogout={handleLogout} adminEmail={adminEmail}/>}
           </div>
         </div>
       </div>
