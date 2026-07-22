@@ -1783,10 +1783,6 @@ export default function AdminApp() {
               </p>
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-              <div className="pulse" style={{ display:"flex", alignItems:"center", gap:6, background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.2)", borderRadius:50, padding:"6px 12px" }}>
-                <div style={{ width:6, height:6, borderRadius:"50%", background:"#22c55e" }}/>
-                <span style={{ color:"#22c55e", fontSize:"0.72rem", fontWeight:600 }}>1,247 online</span>
-              </div>
               <button style={{ padding:"7px 14px", borderRadius:8, border:"1px solid rgba(255,255,255,0.1)", background:"transparent", color:"rgba(255,255,255,0.5)", cursor:"pointer", fontSize:"0.78rem" }} onClick={handleLogout}>Sign out</button>
             </div>
           </div>
