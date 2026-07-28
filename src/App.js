@@ -2,6 +2,15 @@ import React, { useState, useEffect } from "react";
 // Adjust this path to wherever your supabaseClient.js actually lives in the project
 import { supabase } from "./supabaseClient";
 import { BarChart as RBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, LineChart, Line } from "recharts";
+import logoMaskWhite from './assets/logo-mask-white.png';
+import logoFullWhite from './assets/logo-full-white.png';
+// ── REAL LOGO (from brand asset) — admin dashboard is dark, so we only need the white variant
+const LogoMaskImg = ({ size=24, style={} }) => (
+  <img src={logoMaskWhite} alt="Unmaskr" style={{ height:size, width:"auto", display:"block", ...style }}/>
+);
+const LogoFullImg = ({ height=24, style={} }) => (
+  <img src={logoFullWhite} alt="Unmaskr" style={{ height, width:"auto", display:"block", ...style }}/>
+);
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 const GlobalStyles = () => (
@@ -189,7 +198,7 @@ const AdminLogin = ({ onLogin }) => {
     <div style={{ minHeight:"100vh", background:"#0e0e0e", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
       <div style={{ width:"100%", maxWidth:380 }}>
         <div style={{ textAlign:"center", marginBottom:40 }}>
-          <MaskIcon size={48} color="white"/>
+          <LogoMaskImg size={48}/>
           <h1 className="syne" style={{ color:"white", fontSize:"1.8rem", fontWeight:800, marginTop:16, marginBottom:6 }}>unmaskr</h1>
           <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.85rem" }}>Admin Dashboard</p>
         </div>
@@ -216,7 +225,7 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
     { key:"revenue",      icon:<Icons.money s={16}/>, label:"Revenue" },
     { key:"users",        icon:<Icons.users s={16}/>, label:"Users" },
     { key:"messages",     icon:<Icons.chat s={16}/>, label:"Messages" },
-    { key:"hints",        icon:<MaskIcon size={16}/>, label:"Hints" },
+    { key:"hints",        icon:<LogoMaskImg size={16}/>, label:"Hints" },
     { key:"games",        icon:<Icons.gamepad s={16}/>, label:"Games" },
     { key:"deposits",     icon:<Icons.arrowDownCirc s={16}/>, label:"Deposits" },
     { key:"withdrawals",  icon:<Icons.bank s={16}/>, label:"Withdrawals" },
@@ -229,7 +238,7 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
     <div style={{ width:collapsed?64:220, minHeight:"100vh", background:"#111", borderRight:"1px solid rgba(255,255,255,0.06)", display:"flex", flexDirection:"column", transition:"width 0.25s", flexShrink:0 }}>
       {/* Logo */}
       <div style={{ padding:"20px 16px", display:"flex", alignItems:"center", gap:10, borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
-        <MaskIcon size={26} color="white"/>
+        <LogoMaskImg size={26}/>
         {!collapsed && <span className="syne" style={{ color:"white", fontWeight:800, fontSize:"1rem", whiteSpace:"nowrap" }}>unmaskr</span>}
         <button onClick={()=>setCollapsed(c=>!c)} style={{ marginLeft:"auto", background:"none", border:"none", color:"rgba(255,255,255,0.3)", cursor:"pointer", fontSize:"1rem", padding:4 }}>
           {collapsed?<Icons.chevR s={16}/>:<Icons.chevL s={16}/>}
@@ -275,9 +284,25 @@ const Overview = () => {
   const [weekUsers, setWeekUsers] = useState([0,0,0,0,0,0,0]);
   const [weekRevenue, setWeekRevenue] = useState([0,0,0,0,0,0,0]);
   const [recentActivity, setRecentActivity] = useState([]);
+  const [onlineCount, setOnlineCount] = useState(0);
   const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
   useEffect(() => { fetchOverview(); }, []);
+
+  // Real active-users-online count via Supabase Realtime Presence. The main
+  // app tracks itself on the same "online-users" channel whenever it's open
+  // (see the presence useEffect in the main app's root App component) — this
+  // just listens in and counts how many distinct clients are present.
+  useEffect(() => {
+    const channel = supabase.channel("online-users");
+    channel
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState();
+        setOnlineCount(Object.keys(state).length);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const fetchOverview = async () => {
     setLoading(true);
@@ -337,6 +362,12 @@ const Overview = () => {
             <div style={{ color:"rgba(255,255,255,0.6)", fontSize:"0.72rem" }}>{l}</div>
           </div>
         ))}
+        <div style={{ textAlign:"center" }}>
+          <div className="syne" style={{ color:"white", fontSize:"1.3rem", fontWeight:800, display:"flex", alignItems:"center", gap:6, justifyContent:"center" }}>
+            <span className="pulse" style={{ width:8, height:8, borderRadius:"50%", background:"#22c55e", display:"inline-block" }}/>{onlineCount}
+          </div>
+          <div style={{ color:"rgba(255,255,255,0.6)", fontSize:"0.72rem" }}>active right now</div>
+        </div>
       </div>
 
       {/* Stat cards */}
@@ -346,9 +377,6 @@ const Overview = () => {
         <StatCard icon={<MaskIcon size={20} color="#ffcd3c"/>} label="Hints sold" value={stats.hintsSold.toLocaleString()} color="#ffcd3c"/>
         <StatCard icon={<Icons.bank s={20} c="#ef4444"/>} label="Pending withdrawals" value={`₦${stats.pendingWithdrawals.toLocaleString()}`} color="#ef4444"/>
       </div>
-      <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
-        "Games played" and "active users online" aren't shown — no games or presence tracking exists in the database yet.
-      </p>
 
       {/* Charts row */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:24 }}>
@@ -931,46 +959,101 @@ const Hints = () => {
 };
 
 // ─── GAMES ────────────────────────────────────────────────────────────────────
-const GamesAdmin = () => (
-  <div>
-    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:14, marginBottom:24 }}>
-      <StatCard icon={<Icons.gamepad s={20} c="#22c55e"/>} label="Games played" value="8,441" change="5%" positive color="#22c55e"/>
-      <StatCard icon={<MaskIcon size={20} color="#a855f7"/>} label="Mystery Lobby" value="6,120" change="8%" positive color="#a855f7"/>
-      <StatCard icon={<Icons.money s={20} c="#ffcd3c"/>} label="Stake & Win" value="2,321" change="3%" positive color="#ffcd3c"/>
-      <StatCard icon={<Icons.bank s={20} c="#ff5c3a"/>} label="Stake revenue" value="₦1.32M" change="11%" positive color="#ff5c3a"/>
-    </div>
-    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
-      <Card>
-        <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Mystery Lobby games</p>
-        <BarChart data={[80,120,95,160,140,200,180]} labels={["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]} color="#a855f7" height={90}/>
-      </Card>
-      <Card>
-        <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Stake & Win games</p>
-        <BarChart data={[30,45,28,60,52,80,70]} labels={["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]} color="#ffcd3c" height={90}/>
-      </Card>
-    </div>
-    <Card style={{ marginTop:14 }}>
-      <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Recent Stake & Win games</p>
-      {[
-        { players:"@temi, @kolade, @sade", stake:"₦500 each", pot:"₦1,500", winner:"@sade", unmaskr:"₦225", time:"10m ago" },
-        { players:"@david, @grace", stake:"₦1,000 each", pot:"₦2,000", winner:"@david", unmaskr:"₦300", time:"35m ago" },
-        { players:"@mike, @femi, @grace, @temi", stake:"₦200 each", pot:"₦800", winner:"Tie", unmaskr:"₦120", time:"1h ago" },
-      ].map((g,i) => (
-        <div key={i} className="row-hover" style={{ padding:"14px 10px", borderRadius:10, borderBottom:i<2?"1px solid rgba(255,255,255,0.05)":"none" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
-            <span style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>Pot: {g.pot}</span>
-            <span style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.75rem" }}>{g.time}</span>
+const GamesAdmin = () => {
+  const [loading, setLoading] = useState(true);
+  const [sessions, setSessions] = useState([]);
+  const [playersBySession, setPlayersBySession] = useState({}); // session_id -> [players]
+  const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
+  useEffect(() => { fetchGames(); }, []);
+
+  const fetchGames = async () => {
+    setLoading(true);
+    const { data: sessionsData } = await supabase
+      .from("game_sessions")
+      .select("id, game_type, status, stake_amount, currency, host_name, created_at")
+      .order("created_at", { ascending: false });
+    const rows = sessionsData || [];
+    setSessions(rows);
+
+    const { data: playersData } = await supabase.from("game_players").select("session_id, display_name, score");
+    const grouped = {};
+    (playersData || []).forEach(p => { (grouped[p.session_id] = grouped[p.session_id] || []).push(p); });
+    setPlayersBySession(grouped);
+    setLoading(false);
+  };
+
+  const finished = sessions.filter(s => s.status === "finished");
+  const mysteryFinished = finished.filter(s => s.game_type === "mystery_lobby");
+  const stakeFinished = finished.filter(s => s.game_type === "stake_win");
+  const totalPlayed = mysteryFinished.length + stakeFinished.length;
+
+  // Unmaskr's 15% cut of each finished Stake & Win game's actual pot (stake × real player count)
+  const stakeRevenue = stakeFinished.reduce((sum, s) => {
+    const count = (playersBySession[s.id] || []).length;
+    return sum + Number(s.stake_amount || 0) * count * 0.15;
+  }, 0);
+
+  const buckets = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); return d.toDateString(); });
+  const mysteryWeek = buckets.map(dStr => mysteryFinished.filter(s => new Date(s.created_at).toDateString() === dStr).length);
+  const stakeWeek = buckets.map(dStr => stakeFinished.filter(s => new Date(s.created_at).toDateString() === dStr).length);
+
+  const recentStake = stakeFinished.slice(0, 6).map(s => {
+    const ps = playersBySession[s.id] || [];
+    const top = Math.max(0, ...ps.map(p => p.score || 0));
+    const winners = ps.filter(p => (p.score || 0) === top && top > 0);
+    const pot = Number(s.stake_amount || 0) * ps.length;
+    return {
+      players: ps.map(p => p.display_name).join(", ") || "—",
+      pot: `${s.currency || "₦"}${pot.toLocaleString()}`,
+      winner: winners.length > 1 ? "Tie" : (winners[0]?.display_name || "—"),
+      unmaskr: `${s.currency || "₦"}${(pot * 0.15).toLocaleString()}`,
+      time: timeAgo(s.created_at),
+    };
+  });
+
+  return (
+    <div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:14, marginBottom:24 }}>
+        <StatCard icon={<Icons.gamepad s={20} c="#22c55e"/>} label="Games played" value={totalPlayed.toLocaleString()} color="#22c55e"/>
+        <StatCard icon={<MaskIcon size={20} color="#a855f7"/>} label="Mystery Lobby" value={mysteryFinished.length.toLocaleString()} color="#a855f7"/>
+        <StatCard icon={<Icons.money s={20} c="#ffcd3c"/>} label="Stake & Win" value={stakeFinished.length.toLocaleString()} color="#ffcd3c"/>
+        <StatCard icon={<Icons.bank s={20} c="#ff5c3a"/>} label="Stake revenue (15% fee)" value={`₦${stakeRevenue.toLocaleString()}`} color="#ff5c3a"/>
+      </div>
+      <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
+        Stake revenue assumes ₦ — if players are staking in USD/GBP it's summed in with Naira figures here, since sessions don't currently separate totals by currency.
+      </p>
+      {loading && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem", marginBottom:20 }}>Loading games...</p>}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
+        <Card>
+          <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Mystery Lobby games, last 7 days</p>
+          <BarChart data={mysteryWeek} labels={days} color="#a855f7" height={90}/>
+        </Card>
+        <Card>
+          <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Stake & Win games, last 7 days</p>
+          <BarChart data={stakeWeek} labels={days} color="#ffcd3c" height={90}/>
+        </Card>
+      </div>
+      <Card style={{ marginTop:14 }}>
+        <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Recent Stake & Win games</p>
+        {!loading && recentStake.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>No finished Stake & Win games yet.</p>}
+        {recentStake.map((g,i) => (
+          <div key={i} className="row-hover" style={{ padding:"14px 10px", borderRadius:10, borderBottom:i<recentStake.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+              <span style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>Pot: {g.pot}</span>
+              <span style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.75rem" }}>{g.time}</span>
+            </div>
+            <div style={{ display:"flex", gap:16, flexWrap:"wrap" }}>
+              <span style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem" }}>Players: {g.players}</span>
+              <span style={{ color:"#22c55e", fontSize:"0.78rem" }}>Winner: {g.winner}</span>
+              <span style={{ color:"#ff5c3a", fontSize:"0.78rem" }}>Unmaskr fee: {g.unmaskr}</span>
+            </div>
           </div>
-          <div style={{ display:"flex", gap:16, flexWrap:"wrap" }}>
-            <span style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem" }}>Players: {g.players}</span>
-            <span style={{ color:"#22c55e", fontSize:"0.78rem" }}>Winner: {g.winner}</span>
-            <span style={{ color:"#ff5c3a", fontSize:"0.78rem" }}>Unmaskr fee: {g.unmaskr}</span>
-          </div>
-        </div>
-      ))}
-    </Card>
-  </div>
-);
+        ))}
+      </Card>
+    </div>
+  );
+};
 
 // ─── DEPOSITS ─────────────────────────────────────────────────────────────────
 // Admin manually confirms deposits for now (business account, testing phase —
@@ -1756,7 +1839,7 @@ export default function AdminApp() {
     <>
       <GlobalStyles/>
       <div style={{ minHeight:"100vh", background:"#0e0e0e", display:"flex", alignItems:"center", justifyContent:"center" }}>
-        <MaskIcon size={40} color="rgba(255,255,255,0.3)"/>
+        <LogoMaskImg size={40}/>
       </div>
     </>
   );
