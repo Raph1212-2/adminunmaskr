@@ -471,7 +471,7 @@ const Revenue = () => {
   };
 
   // NOTE: profit here is hint purchases only (Unmaskr's 50% cut). Stake & Win's
-  // 15% fee isn't included — no games/stakes table exists in the database yet.
+  // 5% fee isn't included — no games/stakes table exists in the database yet.
   const hintTotal = hintTx.reduce((s,t)=>s+Number(t.amount),0);
   const profit = hintTotal * 0.5;
   const depositTotal = depositTx.reduce((s,t)=>s+Number(t.amount),0);
@@ -532,7 +532,7 @@ const Revenue = () => {
         <StatCard icon={<Icons.refresh s={20} c="#38bdf8"/>} label="Total money moved" value={`₦${(hintTotal+depositTotal+withdrawalTotal).toLocaleString()}`} color="#38bdf8"/>
       </div>
       <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
-        Profit shown here counts hint purchases only — Stake & Win's 15% fee isn't included, since no games data exists in the database yet.
+        Profit shown here counts hint purchases only — Stake & Win's 5% fee isn't included, since no games data exists in the database yet.
       </p>
 
       <Card style={{ marginBottom:20 }}>
@@ -988,10 +988,10 @@ const GamesAdmin = () => {
   const stakeFinished = finished.filter(s => s.game_type === "stake_win");
   const totalPlayed = mysteryFinished.length + stakeFinished.length;
 
-  // Unmaskr's 15% cut of each finished Stake & Win game's actual pot (stake × real player count)
+  // Unmaskr's 5% cut of each finished Stake & Win game's actual pot (stake × real player count)
   const stakeRevenue = stakeFinished.reduce((sum, s) => {
     const count = (playersBySession[s.id] || []).length;
-    return sum + Number(s.stake_amount || 0) * count * 0.15;
+    return sum + Number(s.stake_amount || 0) * count * 0.05;
   }, 0);
 
   const buckets = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); return d.toDateString(); });
@@ -1007,7 +1007,7 @@ const GamesAdmin = () => {
       players: ps.map(p => p.display_name).join(", ") || "—",
       pot: `${s.currency || "₦"}${pot.toLocaleString()}`,
       winner: winners.length > 1 ? "Tie" : (winners[0]?.display_name || "—"),
-      unmaskr: `${s.currency || "₦"}${(pot * 0.15).toLocaleString()}`,
+      unmaskr: `${s.currency || "₦"}${(pot * 0.05).toLocaleString()}`,
       time: timeAgo(s.created_at),
     };
   });
@@ -1018,7 +1018,7 @@ const GamesAdmin = () => {
         <StatCard icon={<Icons.gamepad s={20} c="#22c55e"/>} label="Games played" value={totalPlayed.toLocaleString()} color="#22c55e"/>
         <StatCard icon={<MaskIcon size={20} color="#a855f7"/>} label="Mystery Lobby" value={mysteryFinished.length.toLocaleString()} color="#a855f7"/>
         <StatCard icon={<Icons.money s={20} c="#ffcd3c"/>} label="Stake & Win" value={stakeFinished.length.toLocaleString()} color="#ffcd3c"/>
-        <StatCard icon={<Icons.bank s={20} c="#ff5c3a"/>} label="Stake revenue (15% fee)" value={`₦${stakeRevenue.toLocaleString()}`} color="#ff5c3a"/>
+        <StatCard icon={<Icons.bank s={20} c="#ff5c3a"/>} label="Stake revenue (5% fee)" value={`₦${stakeRevenue.toLocaleString()}`} color="#ff5c3a"/>
       </div>
       <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
         Stake revenue assumes ₦ — if players are staking in USD/GBP it's summed in with Naira figures here, since sessions don't currently separate totals by currency.
@@ -1772,7 +1772,7 @@ const AdminSettings = ({ onLogout, adminEmail }) => {
             {[
               { label:"Hint revenue to Unmaskr", value:"50%" },
               { label:"Hint revenue to user", value:"50%" },
-              { label:"Stake & Win fee", value:"15%" },
+              { label:"Stake & Win fee", value:"5%" },
               { label:"Min withdrawal", value:"₦500" },
             ].map(r => (
               <div key={r.label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
