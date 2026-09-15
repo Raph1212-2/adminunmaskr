@@ -1704,8 +1704,18 @@ const PushNotifications = () => {
   const sendNotification = async () => {
     if (!title || !body || sending) return;
     setSending(true);
-    const reach = audienceCounts[target] || 0;
-    const { error } = await supabase.from("push_notifications").insert({ title, body, target, reach });
+    // broadcast_notification actually writes a row into every targeted user's
+    // notifications table (so it shows up in their bell), and returns the real
+    // number of users reached — that's what gets logged below, not the
+    // client-side audienceCounts estimate, which can drift as people sign up.
+    const { data: reach, error: broadcastError } = await supabase.rpc("broadcast_notification", {
+      p_title: title, p_body: body, p_target: target,
+    });
+    if (broadcastError) {
+      setSending(false);
+      return;
+    }
+    const { error } = await supabase.from("push_notifications").insert({ title, body, target, reach: reach || 0 });
     setSending(false);
     if (!error) {
       setSent(true);
@@ -1721,7 +1731,7 @@ const PushNotifications = () => {
         <Card>
           <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Send push notification</p>
           <div style={{ padding:"10px 14px", background:"rgba(255,205,60,0.08)", border:"1px solid rgba(255,205,60,0.2)", borderRadius:10, marginBottom:14, fontSize:"0.76rem", color:"rgba(255,255,255,0.55)", lineHeight:1.6 }}>
-            Not connected to a push provider yet — this logs the notification and its audience size, but won't reach anyone's device until FCM/OneSignal (or similar) is wired up.
+            This reaches the in-app notification bell for every targeted user right away. It doesn't send an OS-level push to their phone yet — that needs a provider (FCM/OneSignal/web push) wired in separately.
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             <div>
