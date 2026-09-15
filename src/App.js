@@ -470,8 +470,8 @@ const Revenue = () => {
     setLoading(false);
   };
 
-  // NOTE: profit here is hint purchases only (Unmaskr's 50% cut). Stake & Win's
-  // 5% fee isn't included — no games/stakes table exists in the database yet.
+  // NOTE: profit here is hint purchases only (Unmaskr's 50% cut). Stake & Win has
+  // no platform fee, so it never contributes profit — it's a pure peer-to-peer pot.
   const hintTotal = hintTx.reduce((s,t)=>s+Number(t.amount),0);
   const profit = hintTotal * 0.5;
   const depositTotal = depositTx.reduce((s,t)=>s+Number(t.amount),0);
@@ -532,7 +532,7 @@ const Revenue = () => {
         <StatCard icon={<Icons.refresh s={20} c="#38bdf8"/>} label="Total money moved" value={`₦${(hintTotal+depositTotal+withdrawalTotal).toLocaleString()}`} color="#38bdf8"/>
       </div>
       <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
-        Profit shown here counts hint purchases only — Stake & Win's 5% fee isn't included, since no games data exists in the database yet.
+        Profit shown here counts hint purchases only.
       </p>
 
       <Card style={{ marginBottom:20 }}>
@@ -614,20 +614,34 @@ const Revenue = () => {
 // This is bookkeeping only — it doesn't move real money, it just helps you track
 // how much of your profit is still sitting in Paystack vs. already in your account.
 const ProfitSweepLog = ({ totalProfit }) => {
-  const [sweeps, setSweeps] = useState([
-    { amount:800000, note:"Monthly sweep to GTBank business account", date:"Jun 1, 2026" },
-    { amount:500000, note:"Partial withdrawal for expenses", date:"May 15, 2026" },
-  ]);
+  const [sweeps, setSweeps] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { fetchSweeps(); }, []);
+
+  const fetchSweeps = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("profit_sweeps").select("*").order("created_at", { ascending:false });
+    setSweeps((data||[]).map(s => ({
+      amount: Number(s.amount),
+      note: s.note || "Profit sweep",
+      date: new Date(s.created_at).toLocaleDateString("en-NG",{month:"short",day:"numeric",year:"numeric"}),
+    })));
+    setLoading(false);
+  };
 
   const totalSwept = sweeps.reduce((s,x)=>s+x.amount,0);
   const stillInPaystack = totalProfit - totalSwept;
 
-  const logSweep = () => {
-    if(!amount) return;
-    setSweeps(s=>[{ amount:Number(amount), note:note||"Profit sweep", date:new Date().toLocaleDateString("en-NG",{month:"short",day:"numeric",year:"numeric"}) }, ...s]);
-    setAmount(""); setNote("");
+  const logSweep = async () => {
+    if(!amount || saving) return;
+    setSaving(true);
+    const { error } = await supabase.from("profit_sweeps").insert({ amount:Number(amount), note: note || "Profit sweep" });
+    setSaving(false);
+    if (!error) { setAmount(""); setNote(""); fetchSweeps(); }
   };
 
   return (
@@ -649,9 +663,11 @@ const ProfitSweepLog = ({ totalProfit }) => {
       <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
         <input type="number" placeholder="Amount (₦)" value={amount} onChange={e=>setAmount(e.target.value)} style={{ width:140, padding:"10px 14px", borderRadius:10, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.06)", color:"white", outline:"none", fontSize:"0.85rem", fontFamily:"'DM Sans',sans-serif" }}/>
         <input placeholder="Note (optional)" value={note} onChange={e=>setNote(e.target.value)} style={{ flex:1, minWidth:160, padding:"10px 14px", borderRadius:10, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.06)", color:"white", outline:"none", fontSize:"0.85rem", fontFamily:"'DM Sans',sans-serif" }}/>
-        <button onClick={logSweep} disabled={!amount} style={{ padding:"10px 18px", borderRadius:10, border:"none", background:amount?"#ff5c3a":"#333", color:"white", cursor:amount?"pointer":"not-allowed", fontSize:"0.85rem", fontWeight:600 }}>Log sweep</button>
+        <button onClick={logSweep} disabled={!amount||saving} style={{ padding:"10px 18px", borderRadius:10, border:"none", background:amount?"#ff5c3a":"#333", color:"white", cursor:(amount&&!saving)?"pointer":"not-allowed", fontSize:"0.85rem", fontWeight:600 }}>{saving?"Logging...":"Log sweep"}</button>
       </div>
 
+      {loading && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>Loading...</p>}
+      {!loading && sweeps.length===0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>No sweeps logged yet.</p>}
       {sweeps.map((s,i) => (
         <div key={i} className="row-hover" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 8px", borderRadius:8, borderBottom:i<sweeps.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
           <div>
@@ -936,7 +952,7 @@ const Hints = () => {
         <StatCard icon={<Icons.user s={20} c="#38bdf8"/>} label="Paid to users" value={`₦${unmaskrShare.toLocaleString()}`} color="#38bdf8"/>
       </div>
       <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
-        Shown as one combined total — there's no column tracking which specific tier (1/2/3) each purchase was, so a per-tier breakdown isn't possible without adding one.
+        Shown as one combined total — there's no column tracking which specific tier (1/2/3) each purchase was, so a per-tier breakdown isn't possible without adding one. Purchases here are only ever logged when the sender actually specified the info behind the hint — unspecified hints are shown to users for free and never create a transaction.
       </p>
 
       <Card>
@@ -988,10 +1004,12 @@ const GamesAdmin = () => {
   const stakeFinished = finished.filter(s => s.game_type === "stake_win");
   const totalPlayed = mysteryFinished.length + stakeFinished.length;
 
-  // Unmaskr's 5% cut of each finished Stake & Win game's actual pot (stake × real player count)
-  const stakeRevenue = stakeFinished.reduce((sum, s) => {
+  // Stake & Win now carries no platform fee — the full pot goes back to the
+  // winner(s). This is total stake volume moved through the platform (for
+  // visibility only), not revenue.
+  const stakeVolume = stakeFinished.reduce((sum, s) => {
     const count = (playersBySession[s.id] || []).length;
-    return sum + Number(s.stake_amount || 0) * count * 0.05;
+    return sum + Number(s.stake_amount || 0) * count;
   }, 0);
 
   const buckets = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); return d.toDateString(); });
@@ -1007,7 +1025,6 @@ const GamesAdmin = () => {
       players: ps.map(p => p.display_name).join(", ") || "—",
       pot: `${s.currency || "₦"}${pot.toLocaleString()}`,
       winner: winners.length > 1 ? "Tie" : (winners[0]?.display_name || "—"),
-      unmaskr: `${s.currency || "₦"}${(pot * 0.05).toLocaleString()}`,
       time: timeAgo(s.created_at),
     };
   });
@@ -1018,10 +1035,10 @@ const GamesAdmin = () => {
         <StatCard icon={<Icons.gamepad s={20} c="#22c55e"/>} label="Games played" value={totalPlayed.toLocaleString()} color="#22c55e"/>
         <StatCard icon={<MaskIcon size={20} color="#a855f7"/>} label="Mystery Lobby" value={mysteryFinished.length.toLocaleString()} color="#a855f7"/>
         <StatCard icon={<Icons.money s={20} c="#ffcd3c"/>} label="Stake & Win" value={stakeFinished.length.toLocaleString()} color="#ffcd3c"/>
-        <StatCard icon={<Icons.bank s={20} c="#ff5c3a"/>} label="Stake revenue (5% fee)" value={`₦${stakeRevenue.toLocaleString()}`} color="#ff5c3a"/>
+        <StatCard icon={<Icons.refresh s={20} c="#38bdf8"/>} label="Total staked" value={`₦${stakeVolume.toLocaleString()}`} color="#38bdf8"/>
       </div>
       <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
-        Stake revenue assumes ₦ — if players are staking in USD/GBP it's summed in with Naira figures here, since sessions don't currently separate totals by currency.
+        Assumes ₦ — if players are staking in USD/GBP it's summed in with Naira figures here, since sessions don't currently separate totals by currency.
       </p>
       {loading && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem", marginBottom:20 }}>Loading games...</p>}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
@@ -1046,7 +1063,6 @@ const GamesAdmin = () => {
             <div style={{ display:"flex", gap:16, flexWrap:"wrap" }}>
               <span style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem" }}>Players: {g.players}</span>
               <span style={{ color:"#22c55e", fontSize:"0.78rem" }}>Winner: {g.winner}</span>
-              <span style={{ color:"#ff5c3a", fontSize:"0.78rem" }}>Unmaskr fee: {g.unmaskr}</span>
             </div>
           </div>
         ))}
@@ -1637,28 +1653,82 @@ const Complaints = () => {
 };
 
 // ─── PUSH NOTIFICATIONS ───────────────────────────────────────────────────────
+// Sending here only logs the notification and its audience size — there is
+// no push provider (FCM/OneSignal/web push) wired into the app yet, so
+// nothing actually reaches a device. Audience counts and history below are
+// real, pulled from profiles/messages and the push_notifications table.
+const AUDIENCE_LABELS = { all:"All users", active:"Active", new:"New today", "18+":"18+", has_messages:"Has messages" };
+
 const PushNotifications = () => {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [target, setTarget] = useState("all");
+  const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
-  const recent = [
-    { title:"New feature: Profile Themes!", body:"Customize your send page with beautiful themes.", target:"All users", sent:"Jun 24", reach:"52,341" },
-    { title:"Your wallet earned money!", body:"Someone bought a hint on your message. Check your wallet!", target:"Users with messages", sent:"Jun 22", reach:"34,120" },
-    { title:"Play Stake & Win", body:"Challenge your friends to a trivia game and win real money!", target:"18+ users", sent:"Jun 20", reach:"28,900" },
-  ];
+  const [audienceCounts, setAudienceCounts] = useState({ all:0, active:0, new:0, "18+":0, has_messages:0 });
+  const [history, setHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [sentThisMonth, setSentThisMonth] = useState(0);
+  const [totalReached, setTotalReached] = useState(0);
+
+  useEffect(() => { fetchAudienceCounts(); fetchHistory(); }, []);
+
+  const fetchAudienceCounts = async () => {
+    const { count: all } = await supabase.from("profiles").select("id", { count:"exact", head:true });
+    const { count: active } = await supabase.from("profiles").select("id", { count:"exact", head:true }).eq("status","active");
+    const todayStr = new Date().toISOString().slice(0,10);
+    const { count: newToday } = await supabase.from("profiles").select("id", { count:"exact", head:true }).gte("created_at", todayStr);
+    const eighteenYearsAgo = new Date(); eighteenYearsAgo.setFullYear(eighteenYearsAgo.getFullYear()-18);
+    const { count: adults } = await supabase.from("profiles").select("id", { count:"exact", head:true }).lte("dob", eighteenYearsAgo.toISOString().slice(0,10));
+    const { data: msgRecipients } = await supabase.from("messages").select("recipient_id");
+    const uniqueRecipients = new Set((msgRecipients||[]).map(m=>m.recipient_id)).size;
+    setAudienceCounts({ all: all||0, active: active||0, new: newToday||0, "18+": adults||0, has_messages: uniqueRecipients });
+  };
+
+  const fetchHistory = async () => {
+    setLoadingHistory(true);
+    const { data } = await supabase.from("push_notifications").select("*").order("created_at",{ ascending:false }).limit(20);
+    setHistory((data||[]).map(n => ({
+      title: n.title, body: n.body, target: AUDIENCE_LABELS[n.target] || n.target, reach: n.reach,
+      sent: new Date(n.created_at).toLocaleDateString("en-NG",{month:"short",day:"numeric"}),
+    })));
+    // Separate lightweight query for the two summary stats, so they stay accurate
+    // even once history has more rows than the 20 shown above.
+    const { data: allRows } = await supabase.from("push_notifications").select("reach, created_at");
+    const now = new Date();
+    setSentThisMonth((allRows||[]).filter(n=>{ const d=new Date(n.created_at); return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear(); }).length);
+    setTotalReached((allRows||[]).reduce((s,n)=>s+Number(n.reach||0),0));
+    setLoadingHistory(false);
+  };
+
+  const sendNotification = async () => {
+    if (!title || !body || sending) return;
+    setSending(true);
+    const reach = audienceCounts[target] || 0;
+    const { error } = await supabase.from("push_notifications").insert({ title, body, target, reach });
+    setSending(false);
+    if (!error) {
+      setSent(true);
+      setTitle(""); setBody("");
+      fetchHistory();
+      setTimeout(()=>setSent(false), 3000);
+    }
+  };
 
   return (
     <div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:24 }}>
         <Card>
           <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Send push notification</p>
+          <div style={{ padding:"10px 14px", background:"rgba(255,205,60,0.08)", border:"1px solid rgba(255,205,60,0.2)", borderRadius:10, marginBottom:14, fontSize:"0.76rem", color:"rgba(255,255,255,0.55)", lineHeight:1.6 }}>
+            Not connected to a push provider yet — this logs the notification and its audience size, but won't reach anyone's device until FCM/OneSignal (or similar) is wired up.
+          </div>
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             <div>
               <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.75rem", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Target audience</p>
               <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                 {["all","active","new","18+","has_messages"].map(t => (
-                  <button key={t} onClick={()=>setTarget(t)} style={{ padding:"6px 12px", borderRadius:8, border:`1px solid ${target===t?"#ff5c3a":"rgba(255,255,255,0.1)"}`, background:target===t?"rgba(255,92,58,0.15)":"transparent", color:target===t?"#ff5c3a":"rgba(255,255,255,0.4)", cursor:"pointer", fontSize:"0.75rem", textTransform:"capitalize" }}>{t==="all"?"All users":t==="has_messages"?"Has messages":t}</button>
+                  <button key={t} onClick={()=>setTarget(t)} style={{ padding:"6px 12px", borderRadius:8, border:`1px solid ${target===t?"#ff5c3a":"rgba(255,255,255,0.1)"}`, background:target===t?"rgba(255,92,58,0.15)":"transparent", color:target===t?"#ff5c3a":"rgba(255,255,255,0.4)", cursor:"pointer", fontSize:"0.75rem" }}>{AUDIENCE_LABELS[t]} ({(audienceCounts[t]||0).toLocaleString()})</button>
                 ))}
               </div>
             </div>
@@ -1671,26 +1741,27 @@ const PushNotifications = () => {
               <textarea value={body} onChange={e=>setBody(e.target.value)} rows={3} placeholder="Notification body..." style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.06)", color:"white", resize:"none", outline:"none", fontSize:"0.88rem", fontFamily:"'DM Sans',sans-serif" }}/>
             </div>
             {sent ? (
-              <div style={{ padding:"12px", background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.2)", borderRadius:10, textAlign:"center", color:"#22c55e", fontSize:"0.85rem", fontWeight:600, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}><Icons.check s={16} c="#22c55e"/>Notification sent!</div>
+              <div style={{ padding:"12px", background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.2)", borderRadius:10, textAlign:"center", color:"#22c55e", fontSize:"0.85rem", fontWeight:600, display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}><Icons.check s={16} c="#22c55e"/>Logged!</div>
             ) : (
-              <button onClick={()=>{if(title&&body){setSent(true);setTimeout(()=>setSent(false),3000);}}} style={{ padding:"12px", borderRadius:10, border:"none", background:title&&body?"#ff5c3a":"#333", color:"white", cursor:title&&body?"pointer":"not-allowed", fontSize:"0.88rem", fontWeight:600, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-                <Icons.bell s={16} c="white"/>Send to {target==="all"?"all 52,341 users":target+" users"}
+              <button onClick={sendNotification} disabled={!title||!body||sending} style={{ padding:"12px", borderRadius:10, border:"none", background:(title&&body)?"#ff5c3a":"#333", color:"white", cursor:(title&&body&&!sending)?"pointer":"not-allowed", fontSize:"0.88rem", fontWeight:600, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                <Icons.bell s={16} c="white"/>{sending?"Logging...":`Send to ${(audienceCounts[target]||0).toLocaleString()} users`}
               </button>
             )}
           </div>
         </Card>
 
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-          <StatCard icon={<Icons.bell s={20} c="#38bdf8"/>} label="Sent this month" value="8" color="#38bdf8"/>
-          <StatCard icon={<Icons.eye s={20} c="#22c55e"/>} label="Avg open rate" value="34%" change="4%" positive color="#22c55e"/>
-          <StatCard icon={<Icons.users s={20} c="#a855f7"/>} label="Total reached" value="420K" color="#a855f7"/>
+          <StatCard icon={<Icons.bell s={20} c="#38bdf8"/>} label="Sent this month" value={String(sentThisMonth)} color="#38bdf8"/>
+          <StatCard icon={<Icons.users s={20} c="#a855f7"/>} label="Total reached (all time)" value={totalReached.toLocaleString()} color="#a855f7"/>
         </div>
       </div>
 
       <Card>
         <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Recent notifications</p>
-        {recent.map((n,i) => (
-          <div key={i} className="row-hover" style={{ padding:"14px 10px", borderRadius:10, borderBottom:i<recent.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
+        {loadingHistory && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>Loading...</p>}
+        {!loadingHistory && history.length===0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>No notifications sent yet.</p>}
+        {history.map((n,i) => (
+          <div key={i} className="row-hover" style={{ padding:"14px 10px", borderRadius:10, borderBottom:i<history.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
             <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
               <p style={{ color:"white", fontSize:"0.85rem", fontWeight:600 }}>{n.title}</p>
               <span style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.75rem" }}>{n.sent}</span>
@@ -1772,7 +1843,6 @@ const AdminSettings = ({ onLogout, adminEmail }) => {
             {[
               { label:"Hint revenue to Unmaskr", value:"50%" },
               { label:"Hint revenue to user", value:"50%" },
-              { label:"Stake & Win fee", value:"5%" },
               { label:"Min withdrawal", value:"₦500" },
             ].map(r => (
               <div key={r.label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
