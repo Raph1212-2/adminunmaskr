@@ -163,6 +163,31 @@ const AdminLogin = ({ onLogin }) => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // 2FA step — shown after a correct password if this account has an
+  // authenticator app enrolled (see "Set up 2FA" in Settings).
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [factorId, setFactorId] = useState(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaError, setMfaError] = useState("");
+
+  const finishAdminCheck = async (userId, emailVal) => {
+    const { data: adminRow } = await supabase
+      .from("admins")
+      .select("id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (!adminRow) {
+      setError("This account doesn't have admin access.");
+      await supabase.auth.signOut();
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
+    onLogin(emailVal);
+  };
+
   const login = async () => {
     if(!email || !password) return;
     setError("");
@@ -176,23 +201,52 @@ const AdminLogin = ({ onLogin }) => {
       return;
     }
 
-    // 2. Is this authenticated user actually an admin?
-    const { data: adminRow } = await supabase
-      .from("admins")
-      .select("id")
-      .eq("user_id", data.user.id)
-      .maybeSingle();
-
-    if (!adminRow) {
-      setError("This account doesn't have admin access.");
-      await supabase.auth.signOut();
-      setLoading(false);
-      return;
+    // 2. Does this account need a 2FA code before the session is fully trusted?
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aal && aal.nextLevel === "aal2" && aal.currentLevel !== "aal2") {
+      const { data: factorsData } = await supabase.auth.mfa.listFactors();
+      const totpFactor = factorsData?.totp?.[0];
+      if (totpFactor) {
+        setFactorId(totpFactor.id);
+        setMfaRequired(true);
+        setLoading(false);
+        return;
+      }
     }
 
-    setLoading(false);
-    onLogin(email);
+    // 3. No 2FA enrolled on this account — proceed straight to the admin check
+    await finishAdminCheck(data.user.id, email);
   };
+
+  const verifyMfa = async () => {
+    if (!mfaCode.trim() || !factorId) return;
+    setLoading(true); setMfaError("");
+    const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
+    if (challengeError) { setLoading(false); setMfaError(challengeError.message); return; }
+    const { data: verifyData, error: verifyError } = await supabase.auth.mfa.verify({ factorId, challengeId: challenge.id, code: mfaCode.trim() });
+    if (verifyError) { setLoading(false); setMfaError("Invalid code — please try again."); return; }
+    await finishAdminCheck(verifyData.user.id, email);
+  };
+
+  if (mfaRequired) return (
+    <div style={{ minHeight:"100vh", background:"#0e0e0e", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ width:"100%", maxWidth:380 }}>
+        <div style={{ textAlign:"center", marginBottom:40 }}>
+          <LogoMaskImg size={48}/>
+          <h1 className="syne" style={{ color:"white", fontSize:"1.5rem", fontWeight:800, marginTop:16, marginBottom:6 }}>Two-factor code</h1>
+          <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.85rem" }}>Enter the 6-digit code from your authenticator app</p>
+        </div>
+        <input type="text" inputMode="numeric" placeholder="123456" value={mfaCode} onChange={e=>{setMfaCode(e.target.value.replace(/\D/g,"").slice(0,6)); setMfaError("");}}
+          onKeyDown={e=>e.key==="Enter"&&verifyMfa()}
+          style={{ width:"100%", padding:"14px 18px", borderRadius:12, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.06)", color:"white", fontSize:"1.2rem", letterSpacing:"0.3em", textAlign:"center", outline:"none", fontFamily:"'DM Sans',sans-serif" }}/>
+        {mfaError && <p style={{ color:"#ef4444", fontSize:"0.82rem", marginTop:10, textAlign:"center" }}>{mfaError}</p>}
+        <button onClick={verifyMfa} disabled={loading||mfaCode.length<6} style={{ width:"100%", marginTop:16, padding:"14px", borderRadius:12, border:"none", background:(loading||mfaCode.length<6)?"#7a3323":"#ff5c3a", color:"white", fontSize:"0.95rem", fontWeight:700, cursor:(loading||mfaCode.length<6)?"default":"pointer", fontFamily:"'DM Sans',sans-serif" }}>
+          {loading ? "Verifying..." : "Verify"}
+        </button>
+        <p style={{ textAlign:"center", marginTop:16, fontSize:"0.82rem", color:"rgba(255,255,255,0.3)", cursor:"pointer" }} onClick={()=>{setMfaRequired(false);setMfaCode("");setMfaError("");supabase.auth.signOut();}}>← Back to sign in</p>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ minHeight:"100vh", background:"#0e0e0e", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
@@ -1869,9 +1923,109 @@ const AdminSettings = ({ onLogout, adminEmail }) => {
               Sign out
             </button>
           </Card>
+
+          <AdminMfaCard/>
         </div>
       </div>
     </div>
+  );
+};
+
+// Two-factor auth (authenticator app / TOTP) enrollment, using Supabase Auth's
+// built-in MFA — no extra backend needed. The actual login-time challenge
+// lives in AdminLogin above; this is just where you turn it on or off.
+const AdminMfaCard = () => {
+  const [factor, setFactor] = useState(null); // existing verified totp factor, if any
+  const [loading, setLoading] = useState(true);
+  const [enrolling, setEnrolling] = useState(false);
+  const [pendingFactorId, setPendingFactorId] = useState(null);
+  const [qrCode, setQrCode] = useState("");
+  const [secret, setSecret] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const fetchFactors = async () => {
+    setLoading(true);
+    const { data } = await supabase.auth.mfa.listFactors();
+    setFactor(data?.totp?.find(f => f.status === "verified") || null);
+    setLoading(false);
+  };
+  useEffect(() => { fetchFactors(); }, []);
+
+  const startEnroll = async () => {
+    setBusy(true); setErr("");
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp" });
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    setPendingFactorId(data.id);
+    setQrCode(data.totp.qr_code);
+    setSecret(data.totp.secret);
+    setEnrolling(true);
+  };
+
+  const activate = async () => {
+    if (!code.trim() || !pendingFactorId) return;
+    setBusy(true); setErr("");
+    const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId: pendingFactorId });
+    if (challengeError) { setBusy(false); setErr(challengeError.message); return; }
+    const { error: verifyError } = await supabase.auth.mfa.verify({ factorId: pendingFactorId, challengeId: challenge.id, code: code.trim() });
+    setBusy(false);
+    if (verifyError) { setErr("Invalid code — please try again."); return; }
+    setEnrolling(false); setCode(""); setQrCode(""); setSecret("");
+    fetchFactors();
+  };
+
+  const cancelEnroll = async () => {
+    if (pendingFactorId) await supabase.auth.mfa.unenroll({ factorId: pendingFactorId });
+    setEnrolling(false); setPendingFactorId(null); setQrCode(""); setSecret(""); setCode(""); setErr("");
+  };
+
+  const removeMfa = async () => {
+    if (!factor) return;
+    setBusy(true); setErr("");
+    const { error } = await supabase.auth.mfa.unenroll({ factorId: factor.id });
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    setFactor(null);
+  };
+
+  return (
+    <Card>
+      <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:6, display:"flex", alignItems:"center", gap:8 }}><Icons.settings s={16} c="#ffcd3c"/>Two-factor authentication</p>
+      <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem", marginBottom:16 }}>Require a code from an authenticator app (Google Authenticator, Authy, etc.) at every admin login.</p>
+
+      {loading && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>Loading...</p>}
+
+      {!loading && !enrolling && factor && (
+        <>
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 14px", background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.2)", borderRadius:10, marginBottom:14 }}>
+            <Icons.check s={14} c="#22c55e"/><span style={{ color:"#22c55e", fontSize:"0.83rem", fontWeight:600 }}>2FA is on</span>
+          </div>
+          <button onClick={removeMfa} disabled={busy} style={{ width:"100%", padding:"10px", borderRadius:10, border:"1px solid rgba(239,68,68,0.3)", background:"rgba(239,68,68,0.08)", color:"#ef4444", cursor:"pointer", fontSize:"0.85rem", fontWeight:600 }}>{busy?"Removing...":"Turn off 2FA"}</button>
+        </>
+      )}
+
+      {!loading && !enrolling && !factor && (
+        <button onClick={startEnroll} disabled={busy} style={{ width:"100%", padding:"10px", borderRadius:10, border:"none", background:"#ff5c3a", color:"white", cursor:"pointer", fontSize:"0.85rem", fontWeight:600 }}>{busy?"Starting...":"Set up 2FA"}</button>
+      )}
+
+      {enrolling && (
+        <div>
+          <p style={{ color:"rgba(255,255,255,0.6)", fontSize:"0.8rem", marginBottom:12 }}>Scan this with your authenticator app:</p>
+          {qrCode && <div style={{ background:"white", borderRadius:12, padding:12, marginBottom:12, display:"flex", justifyContent:"center" }}><img src={qrCode} alt="2FA QR code" style={{ width:160, height:160 }}/></div>}
+          {secret && <p style={{ color:"rgba(255,255,255,0.35)", fontSize:"0.72rem", marginBottom:14, wordBreak:"break-all" }}>Can't scan? Enter this code manually: <span style={{ color:"rgba(255,255,255,0.6)" }}>{secret}</span></p>}
+          <input type="text" inputMode="numeric" placeholder="6-digit code" value={code} onChange={e=>{setCode(e.target.value.replace(/\D/g,"").slice(0,6)); setErr("");}}
+            style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.06)", color:"white", fontSize:"1rem", letterSpacing:"0.2em", textAlign:"center", outline:"none", fontFamily:"'DM Sans',sans-serif", marginBottom:12 }}/>
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={cancelEnroll} style={{ flex:1, padding:"10px", borderRadius:10, border:"1px solid rgba(255,255,255,0.15)", background:"transparent", color:"rgba(255,255,255,0.6)", cursor:"pointer", fontSize:"0.83rem" }}>Cancel</button>
+            <button onClick={activate} disabled={busy||code.length<6} style={{ flex:1, padding:"10px", borderRadius:10, border:"none", background:(busy||code.length<6)?"#7a3323":"#ff5c3a", color:"white", cursor:(busy||code.length<6)?"default":"pointer", fontSize:"0.83rem", fontWeight:600 }}>{busy?"Verifying...":"Activate"}</button>
+          </div>
+        </div>
+      )}
+
+      {err && <p style={{ color:"#ef4444", fontSize:"0.78rem", marginTop:10 }}>{err}</p>}
+    </Card>
   );
 };
 
