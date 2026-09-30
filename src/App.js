@@ -2,14 +2,20 @@ import React, { useState, useEffect } from "react";
 // Adjust this path to wherever your supabaseClient.js actually lives in the project
 import { supabase } from "./supabaseClient";
 import { BarChart as RBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, LineChart, Line } from "recharts";
-const logoMaskWhite = "data:image/png;base64,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";
-const logoFullWhite = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAU8AAAByCAYAAADTXlM1AAA8uklEQVR4nO2deZSmV13nP7V3dXVVL2mSzkpCQiAEQlgUZBMGVERFIrjAQZ1Rj8O4HB31zLg7OjIzjs64jOg4yhjNoIiILIISZJOAhiUESMISIIF0Okknne6q7tq3+eN7v/n93qef732f7upOV3ee7znvqaq3nuU+97n3e3/7HZiamqJFixYtWhwbBk91A1q0aNHidERLni1atGhxHGjJs0WLFi2OAy15tmjRosVxoCXPFi1atDgO9CLPEWA8/X0pcPEJuN9Q+TnS4NhBYKDPcQPp2Pzx/4bofM4BYPiYWi0MpWvVtWmwXNefOuwCruhxj9z2Fi1abGL0IpHl9PsO4BXAOcBdwH3AR4BD5VOHcWAVWAHWyndr6f9rleNNguvlf9X/QyeBLaTv12t+9/UGav6/Wq6T772e7l1tF+WcjHNRH80Ds13aPAJcgAjzAuAS4CBwR2m/r72efq7TokWLTY+mEtg5wDXAk4F7gMPAbeX328vnq+l/IFKpYqzccwiYqfzPpGYMEWRiQllNx+S25+MyIa0ShGxYGl3p8qxVQoNOidb/v6fm3DFEqjtRXz0GSetXAI8GHoUWnXcAn6VzwVilJc4WLU4b9CJPS3nL5bjzgC2IDFaBqxAB3Yek0S8DnwO+gIjlVmAJkaiJarF8QERjaS0TkwlyvPzP0mtV8utGfhlZojSy5DlAp4Saj7EU6ntX709p49moby5Cpo3LgD3AExFZ2kTh6+8Bdpff19L3WUKuSsstWrTYZOhFnuuI/ADOImyUc4gQVsrPc4HzgWeW42eQGvsJROjTVUuJVKX/PVDoiCXVBOEUqEDIA8OJVK4EhoAdiPz6ETlWzy0BzwLPBk4CQ8AriKzXgc8DnwFOAK8DhoA9wBl9+iiO4Wz67CAHtHmVN3XlV5T3vpP7unaWZjOaU8VwXX/qkAu4osc9ctu78/UOoIDe0zFEmhOI+PoVo8jvXcNzVeuwXKfvekV9Rvsdd6b0KJ+jXrz3zdanaXsdN8lQwlbUZ+/n2LI3ZR0zeSbNsRVN4RAiFDdM/w4jc8YuNPFPBLYCzwOWEQlOAv8XmA/8Cngj8FbUnCF9y4Ax4CzguYh8V6hHkXWs36joS5edLm3MRVwLWA1cUD53gcVCzOTPovLbA/CQAF6D3JX9Bfg88DngS+i9DkH4XVOAA8gtcy4qEyLLGxCJ9pOJpOtxWSCVpZaEcmzHzFyKQ9jWNTkfKFOR8lb1zpNo+DrxWaLE+m2W99gAcXbmA0PAM4nEeAj4G+D0KX7+VgHc9EbYFHqSFXMPmvQzUf/tRO2wARFRW6f3HcRnfytwErwe+LOKlIWLQjuHkT/QpxHRuKKvyO5U4CTIsNwPtwF/AhwPKZ7reyBFTUvBc4CjkKZmYnAI0RiCXofvtLGGuoUtZnHOtCM5f7QP7oXvxN5PhH4NnobT0eE/EVE2C5FnpMK/E1V/AWQZ+9pfL33cAvC/nfBj7ORTh+CnLB3Yo6zzeQ23sJmZ5DhcfSf/vHneUzUuiZ0COAK1PXeoNMlDe+G/hnRD5vAt6P3q2xa/tRxHdA+3vXUEE9DR3aoP/DAWQP70RG+DPQGXlkeaxjZ4H3Ie/YCcAvTdOfoo9OWKu4x67UeLzMk3vXAaOo3z6DrJyfBv4KfR8HxlLZm9GJp9uMdaKfP4H6/9lJdcXcQxq9EmVzTUvVdJk9DTe8tv09B5oI+wjS4l4NfKR83oi/8wFEmFcgLXOI2NxT8TeQxlgy0OuAryHt8SDgpUiL+iLwZ+jl+jTgVWiTFGjD/S6RxrPLcQvFB4EjSVsdBB6O3EUnpX5cnLbfDPwOsFY29nPRhrQNyOJZLpvIhb1B/z9GJPQNfXlyOroaHVvKvz+F3AzHIrz88Rna8mfoOo8Cvpuu9Sjw/Q1jpqNTx0OQdvssJPn+GdKUX4KI7unAF9BhcRZopFN5+9E1YOJdiTTgQ0hjuh2Rd/f8pgP7EanuLd8vTOOu6/M8QOJvI1PSDcgVU75/HpH2NwOfBz4M/DFyLzyIkH8Q+Cx6qkD2VZzXHyMSPpQ4c1MafyMTv6q/gRJdrq11a/T+z0nq48eBFyPz1e+RiKq8w2eBl6Vzt6MDwiaFQzhbf/lPdsG5tKyOtEQjqp3AR9CxLwT+E7q6nqQfxUq/BPzn8lNZOo2K/Q6BeeS/f5xJTffJyBxxUdWlmvo+xUgKW0Gm5UtoxTUgIRO/i0jsAmSt3xg8jbT178rvbYT6xN9G/tQzWusUXcAt5PjcBLmybxUim3anKf2I8gJ3oE7K7yQ/hqANtfp6pP/djFj4buDv0/uDqBfvnajfbZLc/ttGNMUmxNhMsoSo/wjydu8FbkOynDSX3ycjwR2idc0qdWCO+Axy4jzX6ATHRhmgvWhyQ2LcIQCkjO5HptlU+D32M/SDvaiFahcSbzehoNgM+QFS4+m3HwB+MH3eQ7saXHeexqbGw8ghfRjpOD+wyrAbdcTeSLbY3Abg701dVn7dhdbH4PaGKaqP9QGgs46n97rzfidq5f3NdJOXqD4Gp2z4AFHIfLhGFzmKH0LN4+4Kig2F21FD+bWoJfe7kMW2i6xUofrAj3lkaj+EAm5PoFSlRcRWcr84wI8CvwG8g7zzQOxvKMEWlGuVvLPxh4Hfpdr6VVpZbpjpAivr3RQFxOb/hSjpPQgJJ6ja7LBatI2G46A9yH8GbYryn+Q9LSwWvCHJfuBTqP12gvxcIHOIzdUVJH6OsvqpXSPk3Q88prcC70Nc58KvQeCOUotv52isG+LCN/oe60GEtwXqoazTlUi+7kYUto3+ctx2tp26kXT++9Di+PFp8bE1JRypOdYPjKTYsRM99+uBX0K66nwylw7SQ0aEF9nK+A5ESIN0yarrrrc+KdrpXwC+mG68u+5mrKYM2+cjZDa9Efg9tCtAfBbQBLkNtxx3bN+NzYjj5H01ooducTSKLLRfBH6CvCG9a7j6Qezxs3gCSYZPU21ybAXrLY1xJ+USKrf5BNr+4Hr69xnH5o1T5SRkz/x8tJ/FMtqD49Zwr+3Ux3xKZ4owrmj5TZKRMo52IfsAEqlvCPfZxeCdA+wnTIffngP+BRGj5xfPL+dfgY2oUYo+xu1I1l5PrlCwsisH4w0S7aDFPftGgB9Hjt0bkU54iupmW6b6uNAj4bVC1RGcJZuQ24BfAd6NkLEnjWGa3LhfFx2Ii+pA4lYk5j6fXt69bD78pxE2AhFm+RVkMX0O2f0/HM4plXbdMS9gjxxreheykr4XcccXyeZmXQhmueZ4VLpTyCK6Ae2O9iayZ73KtmewjvPWdiCx/A8oIg35gbBnRTSZ9aG6weIDwMcQu0e2LidlhelAmIucTcVdsr19EzIE7kShh4fIHqvvYVMxmove7mcX2nvvvWlcV5C3CfIDBm31eLOSuJtlHawgUTmNfIY70vE9iCAHIWHVNdfjRzTBXyD5ex6yJnagCR8j7zIToVe8uojq3FPgTbOOIgfys8h2348o8ShaHO/ZsQtttnU9ek7D5cjn6ZEtvsiJ/QyXafJD/TqIYMbJHPERZFwcQNxln6TJ/K34EWcSEdcgp+ZmqoE6x/XroEREzBGYirwJiXc+mCHv8uL/xaitd6ex2LNJbEMhvqLS9/nWNaBFnidHaz8F/BGKVdliW8sOaxvi0DXBo4haLga+j0xFdoLqKDCyrK2uuIAdqk9pdAd/24I3L7RzHXVQbvHgezlr562EHkNxsXvS7+4d8TzWROFnEhFdZEXtRdbPZWiAlr/9wgawWq84OdMjP2bTpmMZiPPLEVP7Ej6vqWG/HJejrwvkcP8htIvnvemcKJJim1ZrOJOI2INk+CcRIj6I5LTjS+aIJmRAdTtp56C31/2pBqLJGRG8Ej53aj5DNkB66X4dFML4JPDxdI4dRouk0yrQPpOIcI3nHCo2WAF+C3mvkXLrnCaoLmBEmiOpCzX/iVAXbIwBvKZtimJWz+LpGbTr5p+H80z5Fnen1Yt+pptOJsnBt39ELPyzKIraz/OODlM8Fhe2w+rcb2m+Wg+Vc4zh7DqPuc4TXkQ57I+jvWhfRMZCrP6IhLVmC+hMImKE7BuMo0zYH6fPH2y4d4/V+Ya4x1IdtcPqTa+ilVQXiyrvGREZjYSjSCnfgjx8+w+O4roHwnoJ1iiizqT5Gjeosl4AKe13AH9HNSo6yJKJ4IVq6lyymVlSPcWxmFPw9b2t6G6UJ/mzNF6HWOJ8ThfOmh8xRr1NPYqcvJ9HWbebyBT+Ejkv7MhrqVTN+k2pUkMUVfEax8mPdzM4t20/5B4kUm8l162eluipgbPmR3jidVmpw8CfouzZKIolbSXLXXuvhuhoWXy0yYtHeV/qhF3kmJE5Miaibkc64WPkNt2diLhO0q5kqDWcSY4wu9vchLynnlOZEyj88GNoZ+K3pPNiCBmqnnVb8OLWiSaPbxYtqtvTQI7o42jb6n3kdG3cL7wft68FzhpH2ESMk4+mHoga70VNHAcQMt6GKK/cDtuma0nZg+4fHcJ5qs8YmkGEcF44506UM7+DXDRsMRU3mRxl/YioDvYMckQsx2kbh7kOhad/COU1YjWIF9IIaRJNUY/EyvaycnAWFRbchsTRA+RUacyllLpqQzniTCIigsPby1Qn4LjNdDh2MeKK96Os2RWorNNKtckRi1AunjnD5uY+xAW3oRqkuJFkaX5a1G4UJ5xVRNh8XGSwcrP3aqvFcDXikPegh0HtIMdymsxXyFlCc8AMSiw59PIgEo0WO96v1U9Uicmq6GBuhOV0TjhiPeDyyCuQ//EuVDFyIUK0k0gRoliaQVba46gO9R7kJR880wNvgHFCOGQzI6Is+QSJsj2IM64iF5jtROavqWwZVWJPI9/kJeSMvUy1aG3TwGZGhKGNGPDjZqBaKnlqE/QCote/KeCVgIhKhz7ZkvHG7YP+F0tfYlHyqT0wzjGc0hObecsfL2Sd9dKlGgLpheM2O0+E881VG2r7bwC4N7G3mRHRL3ppJVz32LS40K6Zitk9R2BdV3UuoeJwvhJEUz+IDp3Nyyj3Y/FBhI32B04XbDVNAPObmSPqrKZYGNwvDD1KLsXxf2KleOlUnmsYB5ZeyRzxqoL1VoMPYYNgiIhNAkNEbBL4f5IBSG3sl9qiAAAAAElFTkSuQmCC";
-// ── REAL LOGO (from brand asset) — admin dashboard is dark, so we only need the white variant
+// The two logo images that were embedded here as base64 text were corrupted (same
+// broken data found and replaced in the main app's App.js), so the mask is drawn
+// as the real traced logo instead — it can't fail to load, and it's the same
+// artwork now used everywhere else in the app.
 const LogoMaskImg = ({ size=24, style={} }) => (
-  <img src={logoMaskWhite} alt="Unmaskr" style={{ height:size, width:"auto", display:"block", ...style }}/>
+  <svg height={size} width={size*(89.7/97.04)} viewBox="0 0 89.7 97.04" role="img" aria-label="Unmaskr" style={{ display:"block", flexShrink:0, ...style }}>
+    <path fillRule="evenodd" clipRule="evenodd" fill="#ffffff" d="M46.75 97.01 L43.87 97.04 L39.75 96.65 L37.75 96.29 L36.12 95.64 L34.28 95.25 L32.87 94.44 L31.37 94.03 L28.00 92.05 L25.25 90.13 L23.50 88.71 L22.73 87.75 L21.50 86.88 L18.37 83.61 L15.37 79.84 L12.25 75.00 L10.03 71.12 L9.52 69.75 L8.37 67.91 L7.88 66.25 L7.22 65.00 L6.81 63.50 L6.17 62.50 L5.25 59.72 L3.67 54.50 L2.28 48.75 L1.08 42.00 L0.17 33.00 L0.00 30.25 L0.00 23.62 L0.57 15.50 L0.81 14.37 L1.12 11.25 L1.67 8.62 L1.85 7.00 L2.24 5.00 L2.81 3.25 L2.97 1.12 L3.21 0.50 L3.62 0.11 L4.37 0.00 L6.12 0.33 L7.50 0.84 L8.87 1.11 L13.25 2.37 L20.75 3.74 L22.62 3.89 L23.87 4.34 L37.00 5.46 L43.50 5.62 L54.50 5.41 L56.12 5.08 L65.25 4.39 L69.37 3.62 L71.00 3.51 L72.25 3.01 L76.25 2.40 L85.12 0.08 L86.00 0.12 L86.50 0.70 L86.89 2.62 L87.40 4.12 L88.01 8.12 L88.50 10.12 L88.76 14.12 L89.09 15.50 L89.48 19.12 L89.70 23.50 L89.70 30.12 L89.23 38.12 L88.73 39.62 L88.58 43.25 L88.00 45.37 L87.51 48.87 L86.91 50.75 L86.21 54.25 L83.83 61.25 L83.51 62.62 L82.78 63.87 L82.25 65.96 L81.04 68.12 L78.33 73.75 L76.92 75.75 L75.12 78.74 L72.52 82.12 L71.78 82.87 L71.23 83.75 L68.92 86.00 L68.12 87.00 L67.12 87.71 L64.75 89.87 L63.77 90.50 L63.00 91.22 L57.37 94.32 L55.12 95.31 L53.62 95.65 L51.87 96.32 L48.00 96.70 L46.75 97.01Z M14.35 32.87 L15.75 32.07 L21.62 31.77 L25.87 31.76 L30.62 31.96 L32.50 32.28 L34.25 32.79 L35.00 32.67 L35.31 32.25 L35.00 31.37 L33.95 29.62 L30.62 26.42 L27.25 25.04 L25.75 24.89 L22.75 24.85 L20.62 25.22 L18.40 26.12 L15.37 28.24 L13.25 31.10 L12.90 32.00 L12.94 32.50 L13.23 32.75 L14.35 32.87Z M55.30 32.87 L58.37 32.09 L63.87 31.75 L71.37 31.93 L73.62 32.20 L75.25 32.74 L76.00 32.85 L76.75 32.69 L77.02 32.25 L76.50 31.04 L74.37 28.37 L73.12 27.23 L71.25 25.92 L67.50 24.90 L64.25 24.86 L61.87 25.37 L60.25 25.97 L59.37 26.45 L57.75 27.68 L56.64 28.87 L55.75 29.62 L55.19 30.75 L54.50 31.64 L54.34 32.25 L54.46 32.62 L54.87 32.87 L55.30 32.87Z M46.05 80.25 L48.37 80.07 L52.00 79.06 L53.37 78.34 L54.87 77.77 L56.00 76.83 L57.12 76.13 L59.12 74.37 L60.85 72.50 L62.00 70.83 L62.58 69.62 L63.35 68.75 L63.51 67.87 L63.36 67.12 L63.00 66.92 L62.50 67.02 L61.25 67.96 L57.75 69.78 L54.50 70.99 L51.75 71.50 L49.62 72.13 L44.50 72.34 L39.75 72.09 L37.89 71.50 L35.50 71.07 L34.25 70.48 L31.75 69.63 L27.25 67.11 L26.75 66.99 L26.37 67.21 L26.28 67.75 L26.51 68.50 L27.59 70.50 L28.75 72.18 L31.44 75.25 L33.91 77.00 L37.62 78.99 L40.00 79.73 L42.87 80.22 L46.05 80.25Z"/>
+  </svg>
 );
 const LogoFullImg = ({ height=24, style={} }) => (
-  <img src={logoFullWhite} alt="Unmaskr" style={{ height, width:"auto", display:"block", ...style }}/>
+  <div style={{ display:"flex", alignItems:"center", gap:height*0.32, ...style }}>
+    <LogoMaskImg size={height}/>
+    <span className="syne" style={{ fontSize:height*0.72, fontWeight:800, letterSpacing:"-0.02em", color:"white", lineHeight:1, whiteSpace:"nowrap" }}>unmaskr</span>
+  </div>
 );
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
@@ -98,6 +104,7 @@ const Icons = {
   chevL:    ({s=18,c="currentColor"})=><Ic s={s} c={c} d="M15 18l-6-6 6-6"/>,
   chevR:    ({s=18,c="currentColor"})=><Ic s={s} c={c} d="M9 18l6-6-6-6"/>,
   arrowDownCirc: ({s=18,c="currentColor"})=><Ic s={s} c={c} d={["M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z","M12 7v8","M8 11l4 4 4-4"]}/>,
+  medal:    ({s=20,c="currentColor"})=><Ic s={s} c={c} d={["M12 15a5 5 0 1 0 0-10 5 5 0 0 0 0 10z","M8.21 13.89 7 23l5-3 5 3-1.21-9.12"]}/>,
 };
 
 const Avatar = ({ size=34, bg }) => (
@@ -141,6 +148,13 @@ const timeAgo = (isoString) => {
   return `${days}d ago`;
 };
 
+// Exact date+time, for matching a report against your Paystack dashboard —
+// timeAgo() alone ("2h ago") isn't precise enough to look up a transaction by.
+const exactTime = (isoString) => {
+  if (!isoString) return "";
+  return new Date(isoString).toLocaleString("en-NG", { day:"numeric", month:"short", year:"numeric", hour:"numeric", minute:"2-digit" });
+};
+
 // ─── MINI BAR CHART ───────────────────────────────────────────────────────────
 const BarChart = ({ data, labels, color="#ff5c3a", height=80 }) => {
   const max = Math.max(...data);
@@ -155,16 +169,12 @@ const BarChart = ({ data, labels, color="#ff5c3a", height=80 }) => {
     </div>
   );
 };
-
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
 const AdminLogin = ({ onLogin }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // 2FA step — shown after a correct password if this account has an
-  // authenticator app enrolled (see "Set up 2FA" in Settings).
   const [mfaRequired, setMfaRequired] = useState(false);
   const [factorId, setFactorId] = useState(null);
   const [mfaCode, setMfaCode] = useState("");
@@ -193,7 +203,6 @@ const AdminLogin = ({ onLogin }) => {
     setError("");
     setLoading(true);
 
-    // 1. Real Supabase Auth check
     const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
     if (authError) {
       setError("Invalid email or password.");
@@ -201,7 +210,6 @@ const AdminLogin = ({ onLogin }) => {
       return;
     }
 
-    // 2. Does this account need a 2FA code before the session is fully trusted?
     const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     if (aal && aal.nextLevel === "aal2" && aal.currentLevel !== "aal2") {
       const { data: factorsData } = await supabase.auth.mfa.listFactors();
@@ -214,7 +222,6 @@ const AdminLogin = ({ onLogin }) => {
       }
     }
 
-    // 3. No 2FA enrolled on this account — proceed straight to the admin check
     await finishAdminCheck(data.user.id, email);
   };
 
@@ -290,7 +297,6 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
 
   return (
     <div style={{ width:collapsed?64:220, minHeight:"100vh", background:"#111", borderRight:"1px solid rgba(255,255,255,0.06)", display:"flex", flexDirection:"column", transition:"width 0.25s", flexShrink:0 }}>
-      {/* Logo */}
       <div style={{ padding:"20px 16px", display:"flex", alignItems:"center", gap:10, borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
         <LogoMaskImg size={26}/>
         {!collapsed && <span className="syne" style={{ color:"white", fontWeight:800, fontSize:"1rem", whiteSpace:"nowrap" }}>unmaskr</span>}
@@ -299,7 +305,6 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
         </button>
       </div>
 
-      {/* Nav items */}
       <nav style={{ flex:1, padding:"12px 8px", display:"flex", flexDirection:"column", gap:2 }}>
         {items.map(item => (
           <button key={item.key} onClick={()=>setActive(item.key)} className="nav-item" style={{
@@ -315,7 +320,6 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
         ))}
       </nav>
 
-      {/* Admin tag */}
       {!collapsed && (
         <div style={{ padding:"16px", borderTop:"1px solid rgba(255,255,255,0.06)" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
@@ -330,7 +334,6 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
     </div>
   );
 };
-
 // ─── OVERVIEW ─────────────────────────────────────────────────────────────────
 const Overview = () => {
   const [loading, setLoading] = useState(true);
@@ -343,10 +346,6 @@ const Overview = () => {
 
   useEffect(() => { fetchOverview(); }, []);
 
-  // Real active-users-online count via Supabase Realtime Presence. The main
-  // app tracks itself on the same "online-users" channel whenever it's open
-  // (see the presence useEffect in the main app's root App component) — this
-  // just listens in and counts how many distinct clients are present.
   useEffect(() => {
     const channel = supabase.channel("online-users");
     channel
@@ -374,7 +373,6 @@ const Overview = () => {
 
     const hintsSold = (hintTx || []).length;
     const pendingWithdrawals = (withdrawalTx || []).reduce((s,t)=>s+Number(t.amount),0);
-    const messagesToday = 0; // computed below from a fresh count query
     const hintsToday = (hintTx || []).filter(t => new Date(t.created_at).toDateString() === todayStr).length;
     const signupsToday = (recentProfiles || []).filter(p => new Date(p.created_at).toDateString() === todayStr).length;
 
@@ -382,7 +380,6 @@ const Overview = () => {
 
     setStats({ totalUsers: totalUsers||0, totalMessages: totalMessages||0, hintsSold, pendingWithdrawals, messagesToday: msgsToday||0, hintsToday, signupsToday });
 
-    // Last 7 days, oldest to newest
     const dayBuckets = [...Array(7)].map((_,i) => {
       const d = new Date(); d.setDate(d.getDate() - (6-i));
       return d.toDateString();
@@ -390,7 +387,6 @@ const Overview = () => {
     setWeekUsers(dayBuckets.map(dStr => (recentProfiles||[]).filter(p=>new Date(p.created_at).toDateString()===dStr).length));
     setWeekRevenue(dayBuckets.map(dStr => (hintTx||[]).filter(t=>new Date(t.created_at).toDateString()===dStr).reduce((s,t)=>s+Number(t.amount),0)));
 
-    // Recent activity: merge recent signups + recent messages, newest first
     const recipientIds = [...new Set((recentMessages||[]).map(m=>m.recipient_id))];
     const { data: recipientProfiles } = recipientIds.length
       ? await supabase.from("profiles").select("id, username").in("id", recipientIds)
@@ -408,7 +404,6 @@ const Overview = () => {
 
   return (
     <div>
-      {/* Today snapshot */}
       <div style={{ background:"linear-gradient(135deg,#ff5c3a,#ff8c42)", borderRadius:16, padding:"20px 24px", marginBottom:24, display:"flex", alignItems:"center", justifyContent:"center", flexWrap:"wrap", gap:24 }}>
         {[[String(stats.messagesToday),"messages sent today"],[String(stats.hintsToday),"hints bought today"],[String(stats.signupsToday),"new signups today"]].map(([v,l]) => (
           <div key={l} style={{ textAlign:"center" }}>
@@ -424,7 +419,6 @@ const Overview = () => {
         </div>
       </div>
 
-      {/* Stat cards */}
       <div className="fadeUp" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:14, marginBottom:24 }}>
         <StatCard icon={<Icons.users s={20} c="#38bdf8"/>} label="Total users" value={stats.totalUsers.toLocaleString()} color="#38bdf8"/>
         <StatCard icon={<Icons.chat s={20} c="#a855f7"/>} label="Total messages" value={stats.totalMessages.toLocaleString()} color="#a855f7"/>
@@ -432,7 +426,6 @@ const Overview = () => {
         <StatCard icon={<Icons.bank s={20} c="#ef4444"/>} label="Pending withdrawals" value={`₦${stats.pendingWithdrawals.toLocaleString()}`} color="#ef4444"/>
       </div>
 
-      {/* Charts row */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:24 }}>
         <Card>
           <p style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.75rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>New users, last 7 days</p>
@@ -462,7 +455,6 @@ const Overview = () => {
         </Card>
       </div>
 
-      {/* Recent activity */}
       <Card>
         <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18, fontSize:"0.95rem" }}>Recent activity</p>
         {loading && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>Loading...</p>}
@@ -481,7 +473,6 @@ const Overview = () => {
     </div>
   );
 };
-
 // ─── REVENUE ──────────────────────────────────────────────────────────────────
 const Revenue = () => {
   const [range, setRange] = useState("monthly");
@@ -524,8 +515,9 @@ const Revenue = () => {
     setLoading(false);
   };
 
-  // NOTE: profit here is hint purchases only (Unmaskr's 50% cut). Stake & Win has
-  // no platform fee, so it never contributes profit — it's a pure peer-to-peer pot.
+  // NOTE: hint purchases are the ONLY source of platform revenue. Quiz Clash
+  // is entirely free to play — no stakes, no pot, no money moves through it at
+  // all — so it never appears anywhere in these revenue figures.
   const hintTotal = hintTx.reduce((s,t)=>s+Number(t.amount),0);
   const profit = hintTotal * 0.5;
   const depositTotal = depositTx.reduce((s,t)=>s+Number(t.amount),0);
@@ -586,7 +578,7 @@ const Revenue = () => {
         <StatCard icon={<Icons.refresh s={20} c="#38bdf8"/>} label="Total money moved" value={`₦${(hintTotal+depositTotal+withdrawalTotal).toLocaleString()}`} color="#38bdf8"/>
       </div>
       <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
-        Profit shown here counts hint purchases only.
+        Profit shown here counts hint purchases only — the only feature that moves money.
       </p>
 
       <Card style={{ marginBottom:20 }}>
@@ -664,9 +656,6 @@ const Revenue = () => {
 };
 
 // ─── PROFIT SWEEP LOG ─────────────────────────────────────────────────────────
-// Manual log of when you move profit out of Paystack into your own bank account.
-// This is bookkeeping only — it doesn't move real money, it just helps you track
-// how much of your profit is still sitting in Paystack vs. already in your account.
 const ProfitSweepLog = ({ totalProfit }) => {
   const [sweeps, setSweeps] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -733,7 +722,6 @@ const ProfitSweepLog = ({ totalProfit }) => {
     </Card>
   );
 };
-
 // ─── USERS ────────────────────────────────────────────────────────────────────
 const Users = () => {
   const [search, setSearch] = useState("");
@@ -753,11 +741,6 @@ const Users = () => {
 
     if (error || !profilesData) { setLoading(false); return; }
 
-    // Message count, spend, and earnings per user. Simple per-user queries —
-    // fine for testing-scale data; worth moving to a single SQL view/RPC
-    // once you have real volume.
-    // NOTE: 'hint_purchase' / 'hint_earning' are assumed transaction.type
-    // values — adjust these two strings if your main app uses different ones.
     const enriched = await Promise.all(profilesData.map(async (u) => {
       const { count: messageCount } = await supabase
         .from("messages")
@@ -1027,12 +1010,11 @@ const Hints = () => {
     </div>
   );
 };
-
 // ─── GAMES ────────────────────────────────────────────────────────────────────
 const GamesAdmin = () => {
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState([]);
-  const [playersBySession, setPlayersBySession] = useState({}); // session_id -> [players]
+  const [playersBySession, setPlayersBySession] = useState({});
   const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
   useEffect(() => { fetchGames(); }, []);
@@ -1041,7 +1023,7 @@ const GamesAdmin = () => {
     setLoading(true);
     const { data: sessionsData } = await supabase
       .from("game_sessions")
-      .select("id, game_type, status, stake_amount, currency, host_name, created_at")
+      .select("id, game_type, status, host_name, created_at")
       .order("created_at", { ascending: false });
     const rows = sessionsData || [];
     setSessions(rows);
@@ -1055,29 +1037,21 @@ const GamesAdmin = () => {
 
   const finished = sessions.filter(s => s.status === "finished");
   const mysteryFinished = finished.filter(s => s.game_type === "mystery_lobby");
-  const stakeFinished = finished.filter(s => s.game_type === "stake_win");
-  const totalPlayed = mysteryFinished.length + stakeFinished.length;
-
-  // Stake & Win now carries no platform fee — the full pot goes back to the
-  // winner(s). This is total stake volume moved through the platform (for
-  // visibility only), not revenue.
-  const stakeVolume = stakeFinished.reduce((sum, s) => {
-    const count = (playersBySession[s.id] || []).length;
-    return sum + Number(s.stake_amount || 0) * count;
-  }, 0);
+  // NOTE: game_type is still "stake_win" in the database — renaming a column/value
+  // isn't needed for the product rename, since this is purely an internal label.
+  const quizFinished = finished.filter(s => s.game_type === "stake_win");
+  const totalPlayed = mysteryFinished.length + quizFinished.length;
 
   const buckets = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); return d.toDateString(); });
   const mysteryWeek = buckets.map(dStr => mysteryFinished.filter(s => new Date(s.created_at).toDateString() === dStr).length);
-  const stakeWeek = buckets.map(dStr => stakeFinished.filter(s => new Date(s.created_at).toDateString() === dStr).length);
+  const quizWeek = buckets.map(dStr => quizFinished.filter(s => new Date(s.created_at).toDateString() === dStr).length);
 
-  const recentStake = stakeFinished.slice(0, 6).map(s => {
+  const recentQuiz = quizFinished.slice(0, 6).map(s => {
     const ps = playersBySession[s.id] || [];
     const top = Math.max(0, ...ps.map(p => p.score || 0));
     const winners = ps.filter(p => (p.score || 0) === top && top > 0);
-    const pot = Number(s.stake_amount || 0) * ps.length;
     return {
       players: ps.map(p => p.display_name).join(", ") || "—",
-      pot: `${s.currency || "₦"}${pot.toLocaleString()}`,
       winner: winners.length > 1 ? "Tie" : (winners[0]?.display_name || "—"),
       time: timeAgo(s.created_at),
     };
@@ -1088,11 +1062,10 @@ const GamesAdmin = () => {
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:14, marginBottom:24 }}>
         <StatCard icon={<Icons.gamepad s={20} c="#22c55e"/>} label="Games played" value={totalPlayed.toLocaleString()} color="#22c55e"/>
         <StatCard icon={<MaskIcon size={20} color="#a855f7"/>} label="Mystery Lobby" value={mysteryFinished.length.toLocaleString()} color="#a855f7"/>
-        <StatCard icon={<Icons.money s={20} c="#ffcd3c"/>} label="Stake & Win" value={stakeFinished.length.toLocaleString()} color="#ffcd3c"/>
-        <StatCard icon={<Icons.refresh s={20} c="#38bdf8"/>} label="Total staked" value={`₦${stakeVolume.toLocaleString()}`} color="#38bdf8"/>
+        <StatCard icon={<Icons.trophy s={20} c="#ffcd3c"/>} label="Quiz Clash" value={quizFinished.length.toLocaleString()} color="#ffcd3c"/>
       </div>
       <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
-        Assumes ₦ — if players are staking in USD/GBP it's summed in with Naira figures here, since sessions don't currently separate totals by currency.
+        Quiz Clash is free to play — no stakes, no pot, nothing here ever counts toward revenue.
       </p>
       {loading && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem", marginBottom:20 }}>Loading games...</p>}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
@@ -1101,34 +1074,32 @@ const GamesAdmin = () => {
           <BarChart data={mysteryWeek} labels={days} color="#a855f7" height={90}/>
         </Card>
         <Card>
-          <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Stake & Win games, last 7 days</p>
-          <BarChart data={stakeWeek} labels={days} color="#ffcd3c" height={90}/>
+          <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Quiz Clash games, last 7 days</p>
+          <BarChart data={quizWeek} labels={days} color="#ffcd3c" height={90}/>
         </Card>
       </div>
       <Card style={{ marginTop:14 }}>
-        <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Recent Stake & Win games</p>
-        {!loading && recentStake.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>No finished Stake & Win games yet.</p>}
-        {recentStake.map((g,i) => (
-          <div key={i} className="row-hover" style={{ padding:"14px 10px", borderRadius:10, borderBottom:i<recentStake.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
+        <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Recent Quiz Clash games</p>
+        {!loading && recentQuiz.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>No finished Quiz Clash games yet.</p>}
+        {recentQuiz.map((g,i) => (
+          <div key={i} className="row-hover" style={{ padding:"14px 10px", borderRadius:10, borderBottom:i<recentQuiz.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
             <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
-              <span style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>Pot: {g.pot}</span>
+              <span style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>Winner: {g.winner}</span>
               <span style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.75rem" }}>{g.time}</span>
             </div>
-            <div style={{ display:"flex", gap:16, flexWrap:"wrap" }}>
-              <span style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem" }}>Players: {g.players}</span>
-              <span style={{ color:"#22c55e", fontSize:"0.78rem" }}>Winner: {g.winner}</span>
-            </div>
+            <span style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem" }}>Players: {g.players}</span>
           </div>
         ))}
       </Card>
     </div>
   );
 };
-
 // ─── DEPOSITS ─────────────────────────────────────────────────────────────────
-// Admin manually confirms deposits for now (business account, testing phase —
-// no automated Paystack webhook yet). Confirming a deposit credits the user's
-// wallet and sends the "deposit confirmed" email in one action.
+// Confirming a deposit now goes through admin_confirm_deposit() in the database
+// (see wallet-security.sql) instead of a raw read-then-write from the browser.
+// That function checks the caller is actually an admin, checks the deposit is
+// still pending (so double-tapping Confirm can't double-credit the wallet), and
+// credits the wallet as one atomic step — all inside the database itself.
 const Deposits = () => {
   const [tab, setTab] = useState("pending");
   const [pending, setPending] = useState([]);
@@ -1136,6 +1107,7 @@ const Deposits = () => {
   const [loading, setLoading] = useState(true);
   const [confirmingId, setConfirmingId] = useState(null);
   const [justConfirmed, setJustConfirmed] = useState(null);
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => { fetchDeposits(); }, []);
 
@@ -1166,7 +1138,7 @@ const Deposits = () => {
       reference: t.reference || "—",
       amount: `₦${Number(t.amount).toLocaleString()}`,
       rawAmount: Number(t.amount),
-      requested: new Date(t.created_at).toLocaleString("en-NG", { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" }),
+      requested: exactTime(t.created_at),
       date: new Date(t.created_at).toLocaleDateString("en-NG", { month:"short", day:"numeric" }),
       status: t.status,
     }));
@@ -1178,32 +1150,14 @@ const Deposits = () => {
 
   const confirmDeposit = async (dep) => {
     setConfirmingId(dep.id);
-
-    // 1. Mark the transaction confirmed
-    const { error: txError } = await supabase
-      .from("transactions")
-      .update({ status: "completed" })
-      .eq("id", dep.id);
-
-    if (txError) { setConfirmingId(null); return; }
-
-    // 2. Credit the user's wallet (read-then-write — fine at admin/manual
-    // volume; move to an atomic RPC if this ever needs to handle concurrent
-    // confirmations)
-    const { data: wallet } = await supabase
-      .from("wallets")
-      .select("balance")
-      .eq("user_id", dep.userId)
-      .single();
-
-    if (wallet) {
-      await supabase
-        .from("wallets")
-        .update({ balance: Number(wallet.balance) + dep.rawAmount, updated_at: new Date().toISOString() })
-        .eq("user_id", dep.userId);
+    setActionError("");
+    const { error } = await supabase.rpc("admin_confirm_deposit", { p_transaction_id: dep.id });
+    if (error) {
+      setConfirmingId(null);
+      setActionError(error.message?.includes("not_found_or_already_processed") ? "This deposit was already handled — refresh to see its current state." : "Couldn't confirm this deposit — please try again.");
+      return;
     }
 
-    // 3. Email the user, if we have an address on file
     if (dep.email) {
       await supabase.functions.invoke("send-email", {
         body: {
@@ -1223,7 +1177,7 @@ const Deposits = () => {
   };
 
   const rejectDeposit = async (dep) => {
-    const { error } = await supabase.from("transactions").update({ status: "rejected" }).eq("id", dep.id);
+    const { error } = await supabase.from("transactions").update({ status: "rejected" }).eq("id", dep.id).eq("status","pending");
     if (!error) setPending(p => p.filter(x => x.id !== dep.id));
   };
 
@@ -1244,6 +1198,7 @@ const Deposits = () => {
 
       <Card>
         {loading && <p style={{ color:"rgba(255,255,255,0.3)", padding:"20px 8px", fontSize:"0.85rem" }}>Loading deposits...</p>}
+        {actionError && <p style={{ color:"#ef4444", fontSize:"0.82rem", marginBottom:14 }}>{actionError}</p>}
         {!loading && tab === "pending" ? (
           <>
             <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:6 }}>Pending deposits ({pending.length})</p>
@@ -1293,12 +1248,17 @@ const Deposits = () => {
 };
 
 // ─── WITHDRAWALS ──────────────────────────────────────────────────────────────
+// Paying and rejecting now go through admin_pay_withdrawal() / admin_reject_withdrawal()
+// in the database. The user's wallet was already debited the moment they requested
+// the withdrawal (see request_withdrawal() in wallet-security.sql) — Pay here just
+// flips the status once, and Reject refunds the held amount back automatically.
 const Withdrawals = () => {
   const [tab, setTab] = useState("pending");
   const [pending, setPending] = useState([]);
   const [completed, setCompleted] = useState([]);
   const [loading, setLoading] = useState(true);
   const [payingId, setPayingId] = useState(null);
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => { fetchWithdrawals(); }, []);
 
@@ -1328,7 +1288,7 @@ const Withdrawals = () => {
       bank: t.bank_name || "—",
       account: t.account_number || "—",
       amount: `₦${Number(t.amount).toLocaleString()}`,
-      requested: new Date(t.created_at).toLocaleString("en-NG", { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" }),
+      requested: exactTime(t.created_at),
       date: new Date(t.created_at).toLocaleDateString("en-NG", { month:"short", day:"numeric" }),
       status: t.status,
     }));
@@ -1340,28 +1300,36 @@ const Withdrawals = () => {
 
   const payWithdrawal = async (w) => {
     setPayingId(w.id);
-
-    const { error } = await supabase.from("transactions").update({ status: "completed" }).eq("id", w.id);
-    if (!error) {
-      if (w.email) {
-        await supabase.functions.invoke("send-email", {
-          body: {
-            to: w.email,
-            toName: w.name,
-            subject: "Your withdrawal has been paid",
-            htmlContent: `<p>Hi ${w.name},</p><p>Your withdrawal of ${w.amount} has been sent to your ${w.bank} account ending in ${w.account.slice(-4)}.</p>`
-          }
-        });
-      }
-      setPending(p => p.filter(x => x.id !== w.id));
-      setCompleted(c => [{ ...w, status:"completed", date:"Just now" }, ...c]);
+    setActionError("");
+    const { error } = await supabase.rpc("admin_pay_withdrawal", { p_transaction_id: w.id });
+    if (error) {
+      setPayingId(null);
+      setActionError(error.message?.includes("not_found_or_already_processed") ? "This withdrawal was already handled — refresh to see its current state." : "Couldn't mark this as paid — please try again.");
+      return;
     }
+    if (w.email) {
+      await supabase.functions.invoke("send-email", {
+        body: {
+          to: w.email,
+          toName: w.name,
+          subject: "Your withdrawal has been paid",
+          htmlContent: `<p>Hi ${w.name},</p><p>Your withdrawal of ${w.amount} has been sent to your ${w.bank} account ending in ${w.account.slice(-4)}.</p>`
+        }
+      });
+    }
+    setPending(p => p.filter(x => x.id !== w.id));
+    setCompleted(c => [{ ...w, status:"completed", date:"Just now" }, ...c]);
     setPayingId(null);
   };
 
   const rejectWithdrawal = async (w) => {
-    const { error } = await supabase.from("transactions").update({ status: "rejected" }).eq("id", w.id);
-    if (!error) setPending(p => p.filter(x => x.id !== w.id));
+    setActionError("");
+    const { error } = await supabase.rpc("admin_reject_withdrawal", { p_transaction_id: w.id });
+    if (error) {
+      setActionError(error.message?.includes("not_found_or_already_processed") ? "This withdrawal was already handled — refresh to see its current state." : "Couldn't reject this withdrawal — please try again.");
+      return;
+    }
+    setPending(p => p.filter(x => x.id !== w.id));
   };
 
   const pendingTotal = pending.reduce((s,w) => s + Number(w.amount.replace(/[₦,]/g,"")), 0);
@@ -1381,6 +1349,7 @@ const Withdrawals = () => {
 
       <Card>
         {loading && <p style={{ color:"rgba(255,255,255,0.3)", padding:"20px 8px", fontSize:"0.85rem" }}>Loading withdrawals...</p>}
+        {actionError && <p style={{ color:"#ef4444", fontSize:"0.82rem", marginBottom:14 }}>{actionError}</p>}
         {!loading && tab === "pending" ? (
           <>
             <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:18 }}>Pending withdrawals ({pending.length})</p>
@@ -1419,7 +1388,6 @@ const Withdrawals = () => {
     </div>
   );
 };
-
 // ─── COMPLAINTS ───────────────────────────────────────────────────────────────
 const CANNED_REPLIES = [
   { label:"Fixed — our fault", text:"Hi, thank you for bringing this to our attention. After reviewing your account, we can confirm this was an error on our end and it has now been fixed. We're sorry for the inconvenience caused." },
@@ -1437,6 +1405,7 @@ const Complaints = () => {
   const [replyText, setReplyText] = useState("");
   const [refundAmount, setRefundAmount] = useState("");
   const [refunded, setRefunded] = useState(false);
+  const [refundError, setRefundError] = useState("");
   const [sentConfirm, setSentConfirm] = useState(false);
   const [resolvedConfirm, setResolvedConfirm] = useState(false);
 
@@ -1457,19 +1426,23 @@ const Complaints = () => {
     if (error || !data) { setLoading(false); return; }
 
     const userIds = [...new Set(data.map(c => c.user_id))];
-    const { data: profilesData } = userIds.length ? await supabase.from("profiles").select("id, username, email").in("id", userIds) : { data: [] };
+    const { data: profilesData } = userIds.length ? await supabase.from("profiles").select("id, name, username, email").in("id", userIds) : { data: [] };
     const profileById = Object.fromEntries((profilesData||[]).map(p=>[p.id,p]));
 
     setComplaints(data.map(c => ({
       id: c.id,
       userId: c.user_id,
       user: `@${profileById[c.user_id]?.username || "unknown"}`,
+      // Full name + exact timestamp, so you can match a report against your
+      // Paystack dashboard by who-and-when rather than just a username.
+      fullName: profileById[c.user_id]?.name || "Unknown",
       email: profileById[c.user_id]?.email || null,
       subject: c.subject,
       msg: c.message,
       status: c.status,
       priority: c.priority,
       time: timeAgo(c.created_at),
+      exactTime: exactTime(c.created_at),
     })));
     setLoading(false);
   };
@@ -1479,18 +1452,20 @@ const Complaints = () => {
 
   const selectComplaint = c => {
     setSelected(c);
-    setReplyText(""); setRefundAmount(""); setRefunded(false);
+    setReplyText(""); setRefundAmount(""); setRefunded(false); setRefundError("");
     setSentConfirm(false); setResolvedConfirm(false);
     setFoundMessages(null); setFromDate(""); setToDate(""); setActionDone({});
     setComplainantSuspended(false);
   };
 
+  // Runs through admin_refund_user() in the database — checks the caller is
+  // actually an admin, then credits the wallet as one atomic step. No more
+  // raw read-then-write against the wallets table from the browser.
   const applyRefund = async () => {
     if (!refundAmount || !selected) return;
-    const { data: wallet } = await supabase.from("wallets").select("balance").eq("user_id", selected.userId).single();
-    if (wallet) {
-      await supabase.from("wallets").update({ balance: Number(wallet.balance) + Number(refundAmount), updated_at: new Date().toISOString() }).eq("user_id", selected.userId);
-    }
+    setRefundError("");
+    const { error } = await supabase.rpc("admin_refund_user", { p_user_id: selected.userId, p_amount: Number(refundAmount) });
+    if (error) { setRefundError("Couldn't apply this refund — please try again."); return; }
     setRefunded(true);
     setReplyText(`We've added ₦${Number(refundAmount).toLocaleString()} to your Unmaskr wallet — it should reflect immediately. We're sorry for the inconvenience and appreciate your patience.`);
   };
@@ -1516,9 +1491,6 @@ const Complaints = () => {
     setTimeout(() => setResolvedConfirm(false), 2500);
   };
 
-  // De-anonymized investigation: find real senders of messages to this user
-  // in a date range, using messages.sender_email (recipients never see this,
-  // but admin can, for abuse investigation).
   const investigate = async () => {
     if (!selected) return;
     setInvestigating(true);
@@ -1589,7 +1561,8 @@ const Complaints = () => {
             <div key={c.id} onClick={()=>selectComplaint(c)} className="row-hover" style={{ padding:"14px 12px", borderRadius:12, borderBottom:i<complaints.length-1?"1px solid rgba(255,255,255,0.05)":"none", cursor:"pointer", transition:"background 0.15s", background:selected?.id===c.id?"rgba(255,92,58,0.08)":"transparent" }}>
               <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
                 <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                  <span style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>{c.user}</span>
+                  <span style={{ color:"white", fontSize:"0.85rem", fontWeight:500 }}>{c.fullName}</span>
+                  <span style={{ color:"rgba(255,255,255,0.35)", fontSize:"0.78rem" }}>{c.user}</span>
                   <Badge text={c.priority} color={priorityColor[c.priority]}/>
                 </div>
                 <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -1613,12 +1586,14 @@ const Complaints = () => {
               <Badge text={selected.status} color={statusColor[selected.status]}/>
             </div>
             <p style={{ color:"white", fontSize:"0.92rem", fontWeight:600, marginBottom:8 }}>{selected.subject}</p>
-            <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.82rem", marginBottom:4 }}>From: {selected.user} · {selected.time}</p>
+            {/* Full name + exact date/time — what you need to look this person's
+                payment up in Paystack, not just a relative "2h ago". */}
+            <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.82rem", marginBottom:4 }}>From: {selected.fullName} ({selected.user})</p>
+            <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.82rem", marginBottom:4 }}>Filed: {selected.exactTime}</p>
             <div style={{ background:"rgba(255,255,255,0.04)", borderRadius:12, padding:"16px", marginTop:16, marginBottom:20 }}>
               <p style={{ color:"rgba(255,255,255,0.7)", fontSize:"0.88rem", lineHeight:1.7 }}>{selected.msg}</p>
             </div>
 
-            {/* Investigate: see who actually sent this user messages, and act on it */}
             <div style={{ background:"rgba(56,189,248,0.06)", border:"1px solid rgba(56,189,248,0.15)", borderRadius:12, padding:"14px", marginBottom:20 }}>
               <p style={{ color:"#38bdf8", fontSize:"0.78rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>Investigate: who messaged this user</p>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:12, alignItems:"center" }}>
@@ -1655,7 +1630,6 @@ const Complaints = () => {
               )}
             </div>
 
-            {/* Add funds to wallet — for overcharges, or confirmed deposits that never reflected */}
             <div style={{ background:"rgba(34,197,94,0.06)", border:"1px solid rgba(34,197,94,0.15)", borderRadius:12, padding:"14px", marginBottom:20 }}>
               <p style={{ color:"#22c55e", fontSize:"0.78rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>Add funds to wallet</p>
               {refunded ? (
@@ -1666,10 +1640,10 @@ const Complaints = () => {
                   <button onClick={applyRefund} disabled={!refundAmount} style={{ padding:"9px 16px", borderRadius:8, border:"none", background:refundAmount?"#22c55e":"#333", color:"white", cursor:refundAmount?"pointer":"not-allowed", fontSize:"0.8rem", fontWeight:600 }}>Add funds & draft reply</button>
                 </div>
               )}
+              {refundError && <p style={{ color:"#ef4444", fontSize:"0.78rem", marginTop:8 }}>{refundError}</p>}
               <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.72rem", marginTop:8 }}>Use this for overcharges, or when a deposit was confirmed on your end but never reflected due to a network issue.</p>
             </div>
 
-            {/* Suspend the complainant — for false/abusive complaints */}
             <div style={{ background:"rgba(239,68,68,0.06)", border:"1px solid rgba(239,68,68,0.15)", borderRadius:12, padding:"14px", marginBottom:20 }}>
               <p style={{ color:"#ef4444", fontSize:"0.78rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>Suspend this user</p>
               {complainantSuspended ? (
@@ -1705,12 +1679,7 @@ const Complaints = () => {
     </div>
   );
 };
-
 // ─── PUSH NOTIFICATIONS ───────────────────────────────────────────────────────
-// Sending here only logs the notification and its audience size — there is
-// no push provider (FCM/OneSignal/web push) wired into the app yet, so
-// nothing actually reaches a device. Audience counts and history below are
-// real, pulled from profiles/messages and the push_notifications table.
 const AUDIENCE_LABELS = { all:"All users", active:"Active", new:"New today", "18+":"18+", has_messages:"Has messages" };
 
 const PushNotifications = () => {
@@ -1746,8 +1715,6 @@ const PushNotifications = () => {
       title: n.title, body: n.body, target: AUDIENCE_LABELS[n.target] || n.target, reach: n.reach,
       sent: new Date(n.created_at).toLocaleDateString("en-NG",{month:"short",day:"numeric"}),
     })));
-    // Separate lightweight query for the two summary stats, so they stay accurate
-    // even once history has more rows than the 20 shown above.
     const { data: allRows } = await supabase.from("push_notifications").select("reach, created_at");
     const now = new Date();
     setSentThisMonth((allRows||[]).filter(n=>{ const d=new Date(n.created_at); return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear(); }).length);
@@ -1758,10 +1725,6 @@ const PushNotifications = () => {
   const sendNotification = async () => {
     if (!title || !body || sending) return;
     setSending(true);
-    // broadcast_notification actually writes a row into every targeted user's
-    // notifications table (so it shows up in their bell), and returns the real
-    // number of users reached — that's what gets logged below, not the
-    // client-side audienceCounts estimate, which can drift as people sign up.
     const { data: reach, error: broadcastError } = await supabase.rpc("broadcast_notification", {
       p_title: title, p_body: body, p_target: target,
     });
@@ -1841,7 +1804,6 @@ const PushNotifications = () => {
     </div>
   );
 };
-
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
 const AdminSettings = ({ onLogout, adminEmail }) => {
   const [settings, setSettings] = useState(null);
@@ -1866,13 +1828,16 @@ const AdminSettings = ({ onLogout, adminEmail }) => {
     setSaving(null);
   };
 
+  // NOTE: the underlying field is still named stake_win_frozen in the database —
+  // renaming a column isn't needed just to rename the product on-screen, so the
+  // label below is the only thing that changed.
   const toggleRows = [
     { key:"maintenance_mode", label:"Maintenance mode", desc:"Temporarily disable the app for all users" },
     { key:"new_signups_enabled", label:"New signups", desc:"Allow new users to register" },
     { key:"hint_purchases_enabled", label:"Hint purchases", desc:"Allow hint purchases" },
     { key:"withdrawals_enabled", label:"Withdrawals", desc:"Allow users to withdraw funds" },
     { key:"mystery_lobby_frozen", label:"Freeze Mystery Lobby", desc:"Stop new Mystery Lobby games from starting", invert:true },
-    { key:"stake_win_frozen", label:"Freeze Stake & Win", desc:"Stop new Stake & Win games from starting", invert:true },
+    { key:"stake_win_frozen", label:"Freeze Quiz Clash", desc:"Stop new Quiz Clash games from starting", invert:true },
   ];
 
   return (
@@ -1885,7 +1850,6 @@ const AdminSettings = ({ onLogout, adminEmail }) => {
           </p>
           {loading && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>Loading...</p>}
           {!loading && settings && toggleRows.map(s => {
-            // For "frozen" flags, the toggle should show ON when frozen (i.e. the switch means "freeze is active")
             const isOn = settings[s.key];
             return (
               <div key={s.key} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
@@ -1931,11 +1895,8 @@ const AdminSettings = ({ onLogout, adminEmail }) => {
   );
 };
 
-// Two-factor auth (authenticator app / TOTP) enrollment, using Supabase Auth's
-// built-in MFA — no extra backend needed. The actual login-time challenge
-// lives in AdminLogin above; this is just where you turn it on or off.
 const AdminMfaCard = () => {
-  const [factor, setFactor] = useState(null); // existing verified totp factor, if any
+  const [factor, setFactor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
   const [pendingFactorId, setPendingFactorId] = useState(null);
@@ -2037,8 +1998,6 @@ export default function AdminApp() {
   const [collapsed, setCollapsed] = useState(window.innerWidth < 768);
   const [adminEmail, setAdminEmail] = useState("");
 
-  // On load, check if there's already a valid admin session (so refreshing
-  // the page doesn't force a re-login every time).
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -2091,7 +2050,6 @@ export default function AdminApp() {
       <div style={{ display:"flex", minHeight:"100vh", background:"#0e0e0e", flexDirection:"row" }}>
         <Sidebar active={active} setActive={setActive} collapsed={collapsed} setCollapsed={setCollapsed}/>
         <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", minWidth:0 }}>
-          {/* Top bar */}
           <div className="admin-topbar" style={{ padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.06)", display:"flex", alignItems:"center", justifyContent:"space-between", background:"#111", flexWrap:"wrap", gap:10 }}>
             <div>
               <h1 className="syne" style={{ color:"white", fontSize:"1.1rem", fontWeight:800 }}>{titles[active]}</h1>
@@ -2104,7 +2062,6 @@ export default function AdminApp() {
             </div>
           </div>
 
-          {/* Content */}
           <div className="admin-content" style={{ flex:1, padding:"20px", overflowY:"auto" }}>
             {active==="overview"      && <Overview/>}
             {active==="revenue"       && <Revenue/>}
