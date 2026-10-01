@@ -1177,8 +1177,13 @@ const Deposits = () => {
   };
 
   const rejectDeposit = async (dep) => {
-    const { error } = await supabase.from("transactions").update({ status: "rejected" }).eq("id", dep.id).eq("status","pending");
-    if (!error) setPending(p => p.filter(x => x.id !== dep.id));
+    setActionError("");
+    const { error } = await supabase.rpc("admin_reject_deposit", { p_transaction_id: dep.id });
+    if (error) {
+      setActionError(error.message?.includes("not_found_or_already_processed") ? "This deposit was already handled — refresh to see its current state." : "Couldn't reject this deposit — please try again.");
+      return;
+    }
+    setPending(p => p.filter(x => x.id !== dep.id));
   };
 
   const pendingTotal = pending.reduce((s,d) => s + d.rawAmount, 0);
