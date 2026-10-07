@@ -6,9 +6,15 @@ import { BarChart as RBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTo
 // broken data found and replaced in the main app's App.js), so the mask is drawn
 // as the real traced logo instead — it can't fail to load, and it's the same
 // artwork now used everywhere else in the app.
+// Logo concept 9 ("layers peeling back") — same mark as the main site. The
+// admin dashboard is always dark, so this only ever needs the white-on-dark
+// treatment: back/middle layers in white at two opacity levels, front layer
+// solid brand orange.
 const LogoMaskImg = ({ size=24, style={} }) => (
-  <svg height={size} width={size*(89.7/97.04)} viewBox="0 0 89.7 97.04" role="img" aria-label="Unmaskr" style={{ display:"block", flexShrink:0, ...style }}>
-    <path fillRule="evenodd" clipRule="evenodd" fill="#ffffff" d="M46.75 97.01 L43.87 97.04 L39.75 96.65 L37.75 96.29 L36.12 95.64 L34.28 95.25 L32.87 94.44 L31.37 94.03 L28.00 92.05 L25.25 90.13 L23.50 88.71 L22.73 87.75 L21.50 86.88 L18.37 83.61 L15.37 79.84 L12.25 75.00 L10.03 71.12 L9.52 69.75 L8.37 67.91 L7.88 66.25 L7.22 65.00 L6.81 63.50 L6.17 62.50 L5.25 59.72 L3.67 54.50 L2.28 48.75 L1.08 42.00 L0.17 33.00 L0.00 30.25 L0.00 23.62 L0.57 15.50 L0.81 14.37 L1.12 11.25 L1.67 8.62 L1.85 7.00 L2.24 5.00 L2.81 3.25 L2.97 1.12 L3.21 0.50 L3.62 0.11 L4.37 0.00 L6.12 0.33 L7.50 0.84 L8.87 1.11 L13.25 2.37 L20.75 3.74 L22.62 3.89 L23.87 4.34 L37.00 5.46 L43.50 5.62 L54.50 5.41 L56.12 5.08 L65.25 4.39 L69.37 3.62 L71.00 3.51 L72.25 3.01 L76.25 2.40 L85.12 0.08 L86.00 0.12 L86.50 0.70 L86.89 2.62 L87.40 4.12 L88.01 8.12 L88.50 10.12 L88.76 14.12 L89.09 15.50 L89.48 19.12 L89.70 23.50 L89.70 30.12 L89.23 38.12 L88.73 39.62 L88.58 43.25 L88.00 45.37 L87.51 48.87 L86.91 50.75 L86.21 54.25 L83.83 61.25 L83.51 62.62 L82.78 63.87 L82.25 65.96 L81.04 68.12 L78.33 73.75 L76.92 75.75 L75.12 78.74 L72.52 82.12 L71.78 82.87 L71.23 83.75 L68.92 86.00 L68.12 87.00 L67.12 87.71 L64.75 89.87 L63.77 90.50 L63.00 91.22 L57.37 94.32 L55.12 95.31 L53.62 95.65 L51.87 96.32 L48.00 96.70 L46.75 97.01Z M14.35 32.87 L15.75 32.07 L21.62 31.77 L25.87 31.76 L30.62 31.96 L32.50 32.28 L34.25 32.79 L35.00 32.67 L35.31 32.25 L35.00 31.37 L33.95 29.62 L30.62 26.42 L27.25 25.04 L25.75 24.89 L22.75 24.85 L20.62 25.22 L18.40 26.12 L15.37 28.24 L13.25 31.10 L12.90 32.00 L12.94 32.50 L13.23 32.75 L14.35 32.87Z M55.30 32.87 L58.37 32.09 L63.87 31.75 L71.37 31.93 L73.62 32.20 L75.25 32.74 L76.00 32.85 L76.75 32.69 L77.02 32.25 L76.50 31.04 L74.37 28.37 L73.12 27.23 L71.25 25.92 L67.50 24.90 L64.25 24.86 L61.87 25.37 L60.25 25.97 L59.37 26.45 L57.75 27.68 L56.64 28.87 L55.75 29.62 L55.19 30.75 L54.50 31.64 L54.34 32.25 L54.46 32.62 L54.87 32.87 L55.30 32.87Z M46.05 80.25 L48.37 80.07 L52.00 79.06 L53.37 78.34 L54.87 77.77 L56.00 76.83 L57.12 76.13 L59.12 74.37 L60.85 72.50 L62.00 70.83 L62.58 69.62 L63.35 68.75 L63.51 67.87 L63.36 67.12 L63.00 66.92 L62.50 67.02 L61.25 67.96 L57.75 69.78 L54.50 70.99 L51.75 71.50 L49.62 72.13 L44.50 72.34 L39.75 72.09 L37.89 71.50 L35.50 71.07 L34.25 70.48 L31.75 69.63 L27.25 67.11 L26.75 66.99 L26.37 67.21 L26.28 67.75 L26.51 68.50 L27.59 70.50 L28.75 72.18 L31.44 75.25 L33.91 77.00 L37.62 78.99 L40.00 79.73 L42.87 80.22 L46.05 80.25Z"/>
+  <svg height={size} width={size} viewBox="0 0 100 100" role="img" aria-label="Unmaskr" style={{ display:"block", flexShrink:0, ...style }}>
+    <rect x="8" y="8" width="60" height="60" rx="16" fill="#ffffff" opacity="0.32"/>
+    <rect x="24" y="24" width="60" height="60" rx="16" fill="#ffffff" opacity="0.68"/>
+    <rect x="40" y="40" width="44" height="44" rx="12" fill="#ff5c3a"/>
   </svg>
 );
 const LogoFullImg = ({ height=24, style={} }) => (
@@ -1420,6 +1426,12 @@ const Complaints = () => {
   const [foundMessages, setFoundMessages] = useState(null);
   const [actionDone, setActionDone] = useState({});
 
+  // This user's own transaction history — what you need to actually trace a
+  // money complaint (did a payment really fail? was a hint charged twice?)
+  // instead of just taking their word for it before refunding.
+  const [userTxns, setUserTxns] = useState(null);
+  const [loadingTxns, setLoadingTxns] = useState(false);
+
   useEffect(() => { fetchComplaints(); }, []);
 
   const fetchComplaints = async () => {
@@ -1461,6 +1473,20 @@ const Complaints = () => {
     setSentConfirm(false); setResolvedConfirm(false);
     setFoundMessages(null); setFromDate(""); setToDate(""); setActionDone({});
     setComplainantSuspended(false);
+    setUserTxns(null);
+    fetchUserTxns(c.userId);
+  };
+
+  const fetchUserTxns = async (userId) => {
+    setLoadingTxns(true);
+    const { data } = await supabase
+      .from("transactions")
+      .select("id, type, amount, currency, status, reference, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(15);
+    setUserTxns(data || []);
+    setLoadingTxns(false);
   };
 
   // Runs through admin_refund_user() in the database — checks the caller is
@@ -1597,6 +1623,29 @@ const Complaints = () => {
             <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.82rem", marginBottom:4 }}>Filed: {selected.exactTime}</p>
             <div style={{ background:"rgba(255,255,255,0.04)", borderRadius:12, padding:"16px", marginTop:16, marginBottom:20 }}>
               <p style={{ color:"rgba(255,255,255,0.7)", fontSize:"0.88rem", lineHeight:1.7 }}>{selected.msg}</p>
+            </div>
+
+            <div style={{ background:"rgba(168,85,247,0.06)", border:"1px solid rgba(168,85,247,0.15)", borderRadius:12, padding:"14px", marginBottom:20 }}>
+              <p style={{ color:"#a855f7", fontSize:"0.78rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>This user's recent transactions</p>
+              {loadingTxns && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.8rem" }}>Loading...</p>}
+              {!loadingTxns && userTxns?.length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.8rem" }}>No transactions on record for this user.</p>}
+              {!loadingTxns && userTxns?.map(t => {
+                const label = { deposit:"Top-up", withdrawal:"Withdrawal", hint_purchase:"Hint bought", hint_earning:"Hint earned", stake_win_payout:"Quiz Clash win" }[t.type] || t.type;
+                const statusColor2 = { completed:"#22c55e", pending:"#ffcd3c", rejected:"#ef4444" }[t.status] || "rgba(255,255,255,0.4)";
+                return (
+                  <div key={t.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, padding:"10px 0", borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ minWidth:0 }}>
+                      <p style={{ color:"white", fontSize:"0.83rem", fontWeight:500 }}>{label} <span style={{ color:statusColor2, fontSize:"0.72rem" }}>· {t.status}</span></p>
+                      <p style={{ color:"rgba(255,255,255,0.35)", fontSize:"0.72rem" }}>{exactTime(t.created_at)}{t.reference ? ` · Ref: ${t.reference}` : ""}</p>
+                    </div>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+                      <span className="syne" style={{ color:"white", fontWeight:700, fontSize:"0.85rem" }}>{t.currency||"₦"} {Number(t.amount).toLocaleString()}</span>
+                      <button onClick={()=>setRefundAmount(String(t.amount))} style={{ padding:"4px 8px", borderRadius:6, border:"1px solid rgba(168,85,247,0.3)", background:"rgba(168,85,247,0.1)", color:"#a855f7", cursor:"pointer", fontSize:"0.68rem" }}>Use amount</button>
+                    </div>
+                  </div>
+                );
+              })}
+              <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginTop:10 }}>"Use amount" fills the refund box below with that transaction's amount — it doesn't refund anything by itself.</p>
             </div>
 
             <div style={{ background:"rgba(56,189,248,0.06)", border:"1px solid rgba(56,189,248,0.15)", borderRadius:12, padding:"14px", marginBottom:20 }}>
