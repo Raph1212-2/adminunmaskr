@@ -493,7 +493,7 @@ const Revenue = () => {
   const fetchRevenue = async () => {
     setLoading(true);
     const [{ data: hints }, { data: deposits }, { data: withdrawals }] = await Promise.all([
-      supabase.from("transactions").select("amount, created_at").eq("type","hint_purchase").eq("status","completed"),
+      supabase.from("transactions").select("amount, created_at, reference").eq("type","hint_purchase").eq("status","completed"),
       supabase.from("transactions").select("amount, created_at").eq("type","deposit").eq("status","completed"),
       supabase.from("transactions").select("amount, created_at").eq("type","withdrawal").eq("status","completed"),
     ]);
@@ -503,7 +503,7 @@ const Revenue = () => {
 
     const { data: recent } = await supabase
       .from("transactions")
-      .select("id, user_id, type, amount, status, created_at")
+      .select("id, user_id, type, amount, status, created_at, reference")
       .in("type", ["hint_purchase","deposit","withdrawal"])
       .order("created_at", { ascending:false })
       .limit(8);
@@ -514,7 +514,7 @@ const Revenue = () => {
       type: t.type === "hint_purchase" ? "Hint purchase" : t.type === "deposit" ? "Wallet top-up" : "Withdrawal",
       user: `@${usernameById[t.user_id]||"unknown"}`,
       amount: `₦${Number(t.amount).toLocaleString()}`,
-      unmaskr: t.type === "hint_purchase" ? `₦${(Number(t.amount)*0.5).toLocaleString()}` : "₦0",
+      unmaskr: t.type === "hint_purchase" ? `₦${hintProfit(t).toLocaleString()}` : "₦0",
       time: timeAgo(t.created_at),
     })));
 
@@ -524,42 +524,50 @@ const Revenue = () => {
   // NOTE: hint purchases are the ONLY source of platform revenue. Quiz Clash
   // is entirely free to play — no stakes, no pot, no money moves through it at
   // all — so it never appears anywhere in these revenue figures.
+  //
+  // Your real cut of a hint sale depends on whether the sender actually got
+  // paid their 50% — tagged on the transaction as `reference`. No sender
+  // match (no account, or no email given) means you kept the full 100%, not
+  // 50%. Older rows from before this fix have no tag at all; those fall back
+  // to the old 50% assumption since there's no way to know after the fact.
+  const hintProfit = (t) => t.reference === "sender_unpaid" ? Number(t.amount) : Number(t.amount) * 0.5;
   const hintTotal = hintTx.reduce((s,t)=>s+Number(t.amount),0);
-  const profit = hintTotal * 0.5;
+  const profit = hintTx.reduce((s,t)=>s+hintProfit(t),0);
+  const fullMarginCount = hintTx.filter(t=>t.reference==="sender_unpaid").length;
   const depositTotal = depositTx.reduce((s,t)=>s+Number(t.amount),0);
   const withdrawalTotal = withdrawalTx.reduce((s,t)=>s+Number(t.amount),0);
 
   const todayStr = new Date().toDateString();
   const thisMonth = new Date().getMonth();
   const thisYear = new Date().getFullYear();
-  const profitToday = hintTx.filter(t=>new Date(t.created_at).toDateString()===todayStr).reduce((s,t)=>s+Number(t.amount),0)*0.5;
-  const profitThisMonth = hintTx.filter(t=>{const d=new Date(t.created_at); return d.getMonth()===thisMonth && d.getFullYear()===thisYear;}).reduce((s,t)=>s+Number(t.amount),0)*0.5;
+  const profitToday = hintTx.filter(t=>new Date(t.created_at).toDateString()===todayStr).reduce((s,t)=>s+hintProfit(t),0);
+  const profitThisMonth = hintTx.filter(t=>{const d=new Date(t.created_at); return d.getMonth()===thisMonth && d.getFullYear()===thisYear;}).reduce((s,t)=>s+hintProfit(t),0);
 
   const bucketed = (() => {
     if (range === "hourly") {
       const labels = ["12a","1a","2a","3a","4a","5a","6a","7a","8a","9a","10a","11a","12p","1p","2p","3p","4p","5p","6p","7p","8p","9p","10p","11p"];
-      const data = labels.map((_,h) => hintTx.filter(t=>{const d=new Date(t.created_at); return d.toDateString()===todayStr && d.getHours()===h;}).reduce((s,t)=>s+Number(t.amount)*0.5,0));
+      const data = labels.map((_,h) => hintTx.filter(t=>{const d=new Date(t.created_at); return d.toDateString()===todayStr && d.getHours()===h;}).reduce((s,t)=>s+hintProfit(t),0));
       return { data, labels };
     }
     if (range === "daily") {
       const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
       const buckets = [...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); return d.toDateString(); });
-      return { data: buckets.map(dStr=>hintTx.filter(t=>new Date(t.created_at).toDateString()===dStr).reduce((s,t)=>s+Number(t.amount)*0.5,0)), labels: days };
+      return { data: buckets.map(dStr=>hintTx.filter(t=>new Date(t.created_at).toDateString()===dStr).reduce((s,t)=>s+hintProfit(t),0)), labels: days };
     }
     if (range === "monthly") {
       const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-      const data = months.map((_,m)=>hintTx.filter(t=>{const d=new Date(t.created_at); return d.getMonth()===m && d.getFullYear()===thisYear;}).reduce((s,t)=>s+Number(t.amount)*0.5,0));
+      const data = months.map((_,m)=>hintTx.filter(t=>{const d=new Date(t.created_at); return d.getMonth()===m && d.getFullYear()===thisYear;}).reduce((s,t)=>s+hintProfit(t),0));
       return { data, labels: months };
     }
     if (range === "yearly") {
       const years = [thisYear-3, thisYear-2, thisYear-1, thisYear];
-      const data = years.map(y=>hintTx.filter(t=>new Date(t.created_at).getFullYear()===y).reduce((s,t)=>s+Number(t.amount)*0.5,0));
+      const data = years.map(y=>hintTx.filter(t=>new Date(t.created_at).getFullYear()===y).reduce((s,t)=>s+hintProfit(t),0));
       return { data, labels: years.map(String) };
     }
     const buckets = [...Array(8)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(7-i)*7); return d; });
     const data = buckets.map((start)=>{
       const end = new Date(start); end.setDate(end.getDate()+7);
-      return hintTx.filter(t=>{const d=new Date(t.created_at); return d>=start && d<end;}).reduce((s,t)=>s+Number(t.amount)*0.5,0);
+      return hintTx.filter(t=>{const d=new Date(t.created_at); return d>=start && d<end;}).reduce((s,t)=>s+hintProfit(t),0);
     });
     return { data, labels: data.map((_,i)=>`W${i+1}`) };
   })();
@@ -583,6 +591,11 @@ const Revenue = () => {
         <StatCard icon={<Icons.calendar s={20} c="#22c55e"/>} label="Profit today" value={`₦${profitToday.toLocaleString()}`} color="#22c55e"/>
         <StatCard icon={<Icons.refresh s={20} c="#38bdf8"/>} label="Total money moved" value={`₦${(hintTotal+depositTotal+withdrawalTotal).toLocaleString()}`} color="#38bdf8"/>
       </div>
+      {fullMarginCount > 0 && (
+        <p style={{ color:"rgba(34,197,94,0.8)", fontSize:"0.78rem", marginBottom:16, display:"flex", alignItems:"center", gap:6 }}>
+          <Icons.money s={13} c="#22c55e"/>{fullMarginCount} of these sale{fullMarginCount===1?"":"s"} had no account to pay on the sender's side — you kept 100% on those, not 50%.
+        </p>
+      )}
       <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
         Profit shown here counts hint purchases only — the only feature that moves money.
       </p>
@@ -959,21 +972,30 @@ const Hints = () => {
   const [loading, setLoading] = useState(true);
   const [totalSold, setTotalSold] = useState(0);
   const [totalRevenue, setTotalRevenue] = useState(0);
+  const [unmaskrShare, setUnmaskrShare] = useState(0);
+  const [paidToUsers, setPaidToUsers] = useState(0);
   const [weekData, setWeekData] = useState([]);
 
   useEffect(() => { fetchHints(); }, []);
 
   const fetchHints = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("transactions")
-      .select("amount, created_at")
-      .eq("type", "hint_purchase")
-      .eq("status", "completed");
+    const [{ data }, { data: earnings }] = await Promise.all([
+      supabase.from("transactions").select("amount, created_at, reference").eq("type", "hint_purchase").eq("status", "completed"),
+      // "Paid to users" is now the REAL total of what senders actually
+      // received, not an assumed 50% — see hint_earning, created only when
+      // a sender's account was actually found and credited.
+      supabase.from("transactions").select("amount").eq("type", "hint_earning").eq("status", "completed"),
+    ]);
 
     const rows = data || [];
     setTotalSold(rows.length);
     setTotalRevenue(rows.reduce((s,t)=>s+Number(t.amount),0));
+    // Your real cut per sale: 100% when no sender account was found to pay
+    // (tagged "sender_unpaid"), 50% otherwise — same logic as Revenue.
+    // Rows from before this tagging existed fall back to the old 50% assumption.
+    setUnmaskrShare(rows.reduce((s,t)=>s+(t.reference==="sender_unpaid"?Number(t.amount):Number(t.amount)*0.5),0));
+    setPaidToUsers((earnings||[]).reduce((s,t)=>s+Number(t.amount),0));
 
     const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
     const buckets = [...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); return d; });
@@ -984,15 +1006,13 @@ const Hints = () => {
     setLoading(false);
   };
 
-  const unmaskrShare = totalRevenue * 0.5;
-
   return (
     <div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:14, marginBottom:24 }}>
         <StatCard icon={<MaskIcon size={20} color="#ffcd3c"/>} label="Total hints sold" value={totalSold.toLocaleString()} color="#ffcd3c"/>
         <StatCard icon={<Icons.money s={20} c="#ff5c3a"/>} label="Total hint revenue" value={`₦${totalRevenue.toLocaleString()}`} color="#ff5c3a"/>
         <StatCard icon={<Icons.bank s={20} c="#22c55e"/>} label="Unmaskr earned" value={`₦${unmaskrShare.toLocaleString()}`} color="#22c55e"/>
-        <StatCard icon={<Icons.user s={20} c="#38bdf8"/>} label="Paid to users" value={`₦${unmaskrShare.toLocaleString()}`} color="#38bdf8"/>
+        <StatCard icon={<Icons.user s={20} c="#38bdf8"/>} label="Paid to users" value={`₦${paidToUsers.toLocaleString()}`} color="#38bdf8"/>
       </div>
       <p style={{ color:"rgba(255,255,255,0.25)", fontSize:"0.72rem", marginBottom:24, marginTop:-10 }}>
         Shown as one combined total — there's no column tracking which specific tier (1/2/3) each purchase was, so a per-tier breakdown isn't possible without adding one. Purchases here are only ever logged when the sender actually specified the info behind the hint — unspecified hints are shown to users for free and never create a transaction.
