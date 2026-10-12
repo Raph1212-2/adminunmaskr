@@ -493,7 +493,7 @@ const Revenue = () => {
   const fetchRevenue = async () => {
     setLoading(true);
     const [{ data: hints }, { data: deposits }, { data: withdrawals }] = await Promise.all([
-      supabase.from("transactions").select("amount, created_at, reference").eq("type","hint_purchase").eq("status","completed"),
+      supabase.from("transactions").select("amount, created_at, sender_paid").eq("type","hint_purchase").eq("status","completed"),
       supabase.from("transactions").select("amount, created_at").eq("type","deposit").eq("status","completed"),
       supabase.from("transactions").select("amount, created_at").eq("type","withdrawal").eq("status","completed"),
     ]);
@@ -503,7 +503,7 @@ const Revenue = () => {
 
     const { data: recent } = await supabase
       .from("transactions")
-      .select("id, user_id, type, amount, status, created_at, reference")
+      .select("id, user_id, type, amount, status, created_at, reference, sender_paid")
       .in("type", ["hint_purchase","deposit","withdrawal"])
       .order("created_at", { ascending:false })
       .limit(8);
@@ -530,10 +530,10 @@ const Revenue = () => {
   // match (no account, or no email given) means you kept the full 100%, not
   // 50%. Older rows from before this fix have no tag at all; those fall back
   // to the old 50% assumption since there's no way to know after the fact.
-  const hintProfit = (t) => t.reference === "sender_unpaid" ? Number(t.amount) : Number(t.amount) * 0.5;
+  const hintProfit = (t) => t.sender_paid === false ? Number(t.amount) : Number(t.amount) * 0.5;
   const hintTotal = hintTx.reduce((s,t)=>s+Number(t.amount),0);
   const profit = hintTx.reduce((s,t)=>s+hintProfit(t),0);
-  const fullMarginCount = hintTx.filter(t=>t.reference==="sender_unpaid").length;
+  const fullMarginCount = hintTx.filter(t=>t.sender_paid===false).length;
   const depositTotal = depositTx.reduce((s,t)=>s+Number(t.amount),0);
   const withdrawalTotal = withdrawalTx.reduce((s,t)=>s+Number(t.amount),0);
 
@@ -981,7 +981,7 @@ const Hints = () => {
   const fetchHints = async () => {
     setLoading(true);
     const [{ data }, { data: earnings }] = await Promise.all([
-      supabase.from("transactions").select("amount, created_at, reference").eq("type", "hint_purchase").eq("status", "completed"),
+      supabase.from("transactions").select("amount, created_at, sender_paid").eq("type", "hint_purchase").eq("status", "completed"),
       // "Paid to users" is now the REAL total of what senders actually
       // received, not an assumed 50% — see hint_earning, created only when
       // a sender's account was actually found and credited.
@@ -994,7 +994,7 @@ const Hints = () => {
     // Your real cut per sale: 100% when no sender account was found to pay
     // (tagged "sender_unpaid"), 50% otherwise — same logic as Revenue.
     // Rows from before this tagging existed fall back to the old 50% assumption.
-    setUnmaskrShare(rows.reduce((s,t)=>s+(t.reference==="sender_unpaid"?Number(t.amount):Number(t.amount)*0.5),0));
+    setUnmaskrShare(rows.reduce((s,t)=>s+(t.sender_paid===false?Number(t.amount):Number(t.amount)*0.5),0));
     setPaidToUsers((earnings||[]).reduce((s,t)=>s+Number(t.amount),0));
 
     const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
