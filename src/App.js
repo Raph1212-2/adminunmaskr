@@ -1360,16 +1360,7 @@ const Withdrawals = () => {
     try { return await error.context.json(); } catch (e) { return { error:"request_failed", message:"Couldn't reach the payout service." }; }
   };
  
-  // ═══════════════════════════════════════════════════════════════════════
-// PATCH FOR admin-app.js — inside the `Withdrawals` component. THREE changes.
-// ═══════════════════════════════════════════════════════════════════════
-
-// ── CHANGE 1 ────────────────────────────────────────────────────────────
-// Find the function that starts:   const payWithdrawal = async (w) => {
-// and ends just before:            const rejectWithdrawal = async (w) => {
-// Delete that whole function and paste ALL of this in its place:
-
-  const finishPaid = async (w) => {
+ const finishPaid = async (w) => {
     if (w.email) {
       await supabase.functions.invoke("send-email", {
         body: {
@@ -1383,7 +1374,7 @@ const Withdrawals = () => {
     setPending(p => p.filter(x => x.id !== w.id));
     setCompleted(c => [{ ...w, status:"completed", date:"Just now" }, ...c]);
   };
-
+ 
   // Old manual path: you already sent the money yourself, so just mark it paid.
   const markPaidManually = async (w) => {
     const { error } = await supabase.rpc("admin_pay_withdrawal", { p_transaction_id: w.id });
@@ -1393,13 +1384,13 @@ const Withdrawals = () => {
     }
     await finishPaid(w);
   };
-
+ 
   const callPay = async (w, override=false) => {
     const { data, error } = await supabase.functions.invoke("rapid-endpoint", { body: { transaction_id: w.id, override } });
     if (!error && data) return data;
     try { return await error.context.json(); } catch (e) { return { error:"request_failed", message:"Couldn't reach the payout service." }; }
   };
-
+ 
   // Checks a payout that Bachs is still processing, every 15 seconds, and finishes it
   // by itself when Bachs confirms. Keeps working while this page stays open.
   const watchPayout = (w, tries=0) => {
@@ -1412,34 +1403,34 @@ const Withdrawals = () => {
       else watchPayout(w, tries + 1);
     }, 15000);
   };
-
+ 
   const payWithdrawal = async (w) => {
     setPayingId(w.id);
     setActionError("");
-
+ 
     // Airtime withdrawals are still paid by hand
     if (w.bank === "Airtime") {
       if (window.confirm("Airtime is paid by hand. Have you already sent it? Tap OK to mark it as paid.")) await markPaidManually(w);
       setPayingId(null);
       return;
     }
-
+ 
     let r = await callPay(w, false);
-
+ 
     // The name the bank holds doesn't match the Unmaskr profile name — you decide
     if (r.error === "name_mismatch") {
       const ok = window.confirm(`Names don't match.\n\nBank says: ${r.account_name || "(unknown)"}\nUnmaskr profile: ${r.profile_name || "(none)"}\n\nPay anyway? Cancel keeps it pending so you can reject it.`);
       if (!ok) { setPayingId(null); setActionError("Not paid — the account name didn't match. You can Reject it to refund the user."); return; }
       r = await callPay(w, true);
     }
-
+ 
     // Older requests (or any without a saved bank code) can't be automated
     if (r.error === "no_bank_code") {
       if (window.confirm("This request has no bank code, so it can't be paid automatically. If you've already sent the money yourself, tap OK to mark it paid.")) await markPaidManually(w);
       setPayingId(null);
       return;
     }
-
+ 
     if (r.error) {
       setActionError(r.message || `Couldn't pay this withdrawal (${r.error}).${r.detail ? " " + r.detail : ""}`);
     } else if (r.state === "completed") {
@@ -1456,21 +1447,21 @@ const Withdrawals = () => {
     }
     setPayingId(null);
   };
-
+ 
 // ── CHANGE 2 ────────────────────────────────────────────────────────────
 // Find this single line (it's the amount shown in each PENDING row):
 //   <span className="syne" style={{ color:"white", fontWeight:700, fontSize:"1rem" }}>{w.amount}</span>
 // and replace it with these two lines:
-
+ 
                 <span className="syne" style={{ color:"white", fontWeight:700, fontSize:"1rem" }}>{w.amount}</span>
                 {w.processing && <Badge text="Processing at Bachs" color="#ffcd3c" icon={<Icons.clock s={10} c="#ffcd3c"/>}/>}
-
+ 
 // ── CHANGE 3 ────────────────────────────────────────────────────────────
 // Find this line near the top of the Withdrawals component:
 //   useEffect(() => { fetchWithdrawals(); }, []);
 // and paste this block right AFTER it (so that, after a page refresh, payouts that are
 // still with Bachs are marked and keep being checked):
-
+ 
   useEffect(() => {
     if (loading) return;
     supabase.from("withdrawal_details").select("txn_id,state").eq("state","processing").then(({ data }) => {
