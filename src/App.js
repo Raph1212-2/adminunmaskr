@@ -1360,33 +1360,86 @@ const Withdrawals = () => {
     try { return await error.context.json(); } catch (e) { return { error:"request_failed", message:"Couldn't reach the payout service." }; }
   };
  
+  // ═══════════════════════════════════════════════════════════════════════
+// PATCH FOR admin-app.js — inside the `Withdrawals` component. THREE changes.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── CHANGE 1 ────────────────────────────────────────────────────────────
+// Find the function that starts:   const payWithdrawal = async (w) => {
+// and ends just before:            const rejectWithdrawal = async (w) => {
+// Delete that whole function and paste ALL of this in its place:
+
+  const finishPaid = async (w) => {
+    if (w.email) {
+      await supabase.functions.invoke("send-email", {
+        body: {
+          to: w.email,
+          toName: w.name,
+          subject: "Your withdrawal has been paid",
+          htmlContent: `<p>Hi ${w.name},</p><p>Your withdrawal of ${w.amount} has been sent to your ${w.bank} account ending in ${w.account.slice(-4)}.</p>`
+        }
+      });
+    }
+    setPending(p => p.filter(x => x.id !== w.id));
+    setCompleted(c => [{ ...w, status:"completed", date:"Just now" }, ...c]);
+  };
+
+  // Old manual path: you already sent the money yourself, so just mark it paid.
+  const markPaidManually = async (w) => {
+    const { error } = await supabase.rpc("admin_pay_withdrawal", { p_transaction_id: w.id });
+    if (error) {
+      setActionError(error.message?.includes("not_found_or_already_processed") ? "This withdrawal was already handled — refresh to see its current state." : "Couldn't mark this as paid — please try again.");
+      return;
+    }
+    await finishPaid(w);
+  };
+
+  const callPay = async (w, override=false) => {
+    const { data, error } = await supabase.functions.invoke("rapid-endpoint", { body: { transaction_id: w.id, override } });
+    if (!error && data) return data;
+    try { return await error.context.json(); } catch (e) { return { error:"request_failed", message:"Couldn't reach the payout service." }; }
+  };
+
+  // Checks a payout that Bachs is still processing, every 15 seconds, and finishes it
+  // by itself when Bachs confirms. Keeps working while this page stays open.
+  const watchPayout = (w, tries=0) => {
+    if (tries >= 40) return;
+    setTimeout(async () => {
+      const r = await callPay(w, false);
+      if (r.state === "completed") { setActionError(""); await finishPaid(w); }
+      else if (r.state === "failed") { setPending(p => p.filter(x => x.id !== w.id)); setActionError(r.message || "A payout failed and the money went back to the user's wallet."); }
+      else if (r.error === "already_processed") { fetchWithdrawals(); }
+      else watchPayout(w, tries + 1);
+    }, 15000);
+  };
+
   const payWithdrawal = async (w) => {
     setPayingId(w.id);
     setActionError("");
- 
+
     // Airtime withdrawals are still paid by hand
     if (w.bank === "Airtime") {
       if (window.confirm("Airtime is paid by hand. Have you already sent it? Tap OK to mark it as paid.")) await markPaidManually(w);
       setPayingId(null);
       return;
     }
- 
+
     let r = await callPay(w, false);
- 
+
     // The name the bank holds doesn't match the Unmaskr profile name — you decide
     if (r.error === "name_mismatch") {
       const ok = window.confirm(`Names don't match.\n\nBank says: ${r.account_name || "(unknown)"}\nUnmaskr profile: ${r.profile_name || "(none)"}\n\nPay anyway? Cancel keeps it pending so you can reject it.`);
       if (!ok) { setPayingId(null); setActionError("Not paid — the account name didn't match. You can Reject it to refund the user."); return; }
       r = await callPay(w, true);
     }
- 
+
     // Older requests (or any without a saved bank code) can't be automated
     if (r.error === "no_bank_code") {
       if (window.confirm("This request has no bank code, so it can't be paid automatically. If you've already sent the money yourself, tap OK to mark it paid.")) await markPaidManually(w);
       setPayingId(null);
       return;
     }
- 
+
     if (r.error) {
       setActionError(r.message || `Couldn't pay this withdrawal (${r.error}).${r.detail ? " " + r.detail : ""}`);
     } else if (r.state === "completed") {
@@ -1395,10 +1448,38 @@ const Withdrawals = () => {
       setPending(p => p.filter(x => x.id !== w.id));
       setActionError(r.message || "The payout failed and the money went back to the user's wallet.");
     } else {
-      setActionError("Sent to Bachs and processing. Tap Pay again in a minute to check — it finishes by itself once Bachs confirms.");
+      // Still with Bachs (this happens on a user's very first payout, which Bachs reviews).
+      // It stays in Pending, marked "Processing at Bachs", and finishes by itself.
+      setPending(p => p.map(x => x.id === w.id ? { ...x, processing:true } : x));
+      setActionError("Sent to Bachs — it's still processing. This page checks automatically and moves it to Completed when Bachs confirms. Keep this page open.");
+      watchPayout(w, 0);
     }
     setPayingId(null);
   };
+
+// ── CHANGE 2 ────────────────────────────────────────────────────────────
+// Find this single line (it's the amount shown in each PENDING row):
+//   <span className="syne" style={{ color:"white", fontWeight:700, fontSize:"1rem" }}>{w.amount}</span>
+// and replace it with these two lines:
+
+                <span className="syne" style={{ color:"white", fontWeight:700, fontSize:"1rem" }}>{w.amount}</span>
+                {w.processing && <Badge text="Processing at Bachs" color="#ffcd3c" icon={<Icons.clock s={10} c="#ffcd3c"/>}/>}
+
+// ── CHANGE 3 ────────────────────────────────────────────────────────────
+// Find this line near the top of the Withdrawals component:
+//   useEffect(() => { fetchWithdrawals(); }, []);
+// and paste this block right AFTER it (so that, after a page refresh, payouts that are
+// still with Bachs are marked and keep being checked):
+
+  useEffect(() => {
+    if (loading) return;
+    supabase.from("withdrawal_details").select("txn_id,state").eq("state","processing").then(({ data }) => {
+      const ids = new Set((data || []).map(d => String(d.txn_id)));
+      if (ids.size === 0) return;
+      setPending(p => p.map(x => ids.has(String(x.id)) ? { ...x, processing:true } : x));
+      pending.filter(x => ids.has(String(x.id))).forEach(x => watchPayout(x, 0));
+    });
+  }, [loading]);
 
   const rejectWithdrawal = async (w) => {
     setActionError("");
