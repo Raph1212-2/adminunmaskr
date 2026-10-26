@@ -1292,6 +1292,15 @@ const Withdrawals = () => {
   const [actionError, setActionError] = useState("");
 
   useEffect(() => { fetchWithdrawals(); }, []);
+  useEffect(() => {
+    if (loading) return;
+    supabase.from("withdrawal_details").select("txn_id,state").eq("state","processing").then(({ data }) => {
+      const ids = new Set((data || []).map(d => String(d.txn_id)));
+      if (ids.size === 0) return;
+      setPending(p => p.map(x => ids.has(String(x.id)) ? { ...x, processing:true } : x));
+      pending.filter(x => ids.has(String(x.id))).forEach(x => watchPayout(x, 0));
+    });
+  }, [loading]);
 
   const fetchWithdrawals = async () => {
     setLoading(true);
@@ -1330,37 +1339,6 @@ const Withdrawals = () => {
   };
 
   const finishPaid = async (w) => {
-    if (w.email) {
-      await supabase.functions.invoke("send-email", {
-        body: {
-          to: w.email,
-          toName: w.name,
-          subject: "Your withdrawal has been paid",
-          htmlContent: `<p>Hi ${w.name},</p><p>Your withdrawal of ${w.amount} has been sent to your ${w.bank} account ending in ${w.account.slice(-4)}.</p>`
-        }
-      });
-    }
-    setPending(p => p.filter(x => x.id !== w.id));
-    setCompleted(c => [{ ...w, status:"completed", date:"Just now" }, ...c]);
-  };
- 
-  // Old manual path: you already sent the money yourself, so just mark it paid.
-  const markPaidManually = async (w) => {
-    const { error } = await supabase.rpc("admin_pay_withdrawal", { p_transaction_id: w.id });
-    if (error) {
-      setActionError(error.message?.includes("not_found_or_already_processed") ? "This withdrawal was already handled — refresh to see its current state." : "Couldn't mark this as paid — please try again.");
-      return;
-    }
-    await finishPaid(w);
-  };
- 
-  const callPay = async (w, override=false) => {
-    const { data, error } = await supabase.functions.invoke("rapid-endpoint", { body: { transaction_id: w.id, override } });
-    if (!error && data) return data;
-    try { return await error.context.json(); } catch (e) { return { error:"request_failed", message:"Couldn't reach the payout service." }; }
-  };
- 
- const finishPaid = async (w) => {
     if (w.email) {
       await supabase.functions.invoke("send-email", {
         body: {
@@ -1447,31 +1425,6 @@ const Withdrawals = () => {
     }
     setPayingId(null);
   };
- 
-// ── CHANGE 2 ────────────────────────────────────────────────────────────
-// Find this single line (it's the amount shown in each PENDING row):
-//   <span className="syne" style={{ color:"white", fontWeight:700, fontSize:"1rem" }}>{w.amount}</span>
-// and replace it with these two lines:
- 
-                <span className="syne" style={{ color:"white", fontWeight:700, fontSize:"1rem" }}>{w.amount}</span>
-                {w.processing && <Badge text="Processing at Bachs" color="#ffcd3c" icon={<Icons.clock s={10} c="#ffcd3c"/>}/>}
- 
-// ── CHANGE 3 ────────────────────────────────────────────────────────────
-// Find this line near the top of the Withdrawals component:
-//   useEffect(() => { fetchWithdrawals(); }, []);
-// and paste this block right AFTER it (so that, after a page refresh, payouts that are
-// still with Bachs are marked and keep being checked):
- 
-  useEffect(() => {
-    if (loading) return;
-    supabase.from("withdrawal_details").select("txn_id,state").eq("state","processing").then(({ data }) => {
-      const ids = new Set((data || []).map(d => String(d.txn_id)));
-      if (ids.size === 0) return;
-      setPending(p => p.map(x => ids.has(String(x.id)) ? { ...x, processing:true } : x));
-      pending.filter(x => ids.has(String(x.id))).forEach(x => watchPayout(x, 0));
-    });
-  }, [loading]);
-
   const rejectWithdrawal = async (w) => {
     setActionError("");
     const { error } = await supabase.rpc("admin_reject_withdrawal", { p_transaction_id: w.id });
@@ -1511,6 +1464,7 @@ const Withdrawals = () => {
                   <p style={{ color:"rgba(255,255,255,0.35)", fontSize:"0.75rem", marginTop:2 }}>{w.bank} · {w.account} · {w.requested}</p>
                 </div>
                 <span className="syne" style={{ color:"white", fontWeight:700, fontSize:"1rem" }}>{w.amount}</span>
+                {w.processing && <Badge text="Processing at Bachs" color="#ffcd3c" icon={<Icons.clock s={10} c="#ffcd3c"/>}/>}
                 <div style={{ display:"flex", gap:6 }}>
                   <button onClick={()=>payWithdrawal(w)} disabled={payingId===w.id} style={{ padding:"7px 14px", borderRadius:8, border:"none", background:"#22c55e", color:"white", cursor:payingId===w.id?"default":"pointer", fontSize:"0.78rem", fontWeight:600, display:"inline-flex", alignItems:"center", gap:5, opacity:payingId===w.id?0.6:1 }}><Icons.check s={12} c="white"/>{payingId===w.id?"Paying...":"Pay"}</button>
                   <button onClick={()=>rejectWithdrawal(w)} disabled={payingId===w.id} style={{ padding:"7px 14px", borderRadius:8, border:"1px solid rgba(239,68,68,0.3)", background:"rgba(239,68,68,0.1)", color:"#ef4444", cursor:"pointer", fontSize:"0.78rem" }}>Reject</button>
