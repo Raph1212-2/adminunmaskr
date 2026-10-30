@@ -2,10 +2,6 @@ import React, { useState, useEffect } from "react";
 // Adjust this path to wherever your supabaseClient.js actually lives in the project
 import { supabase } from "./supabaseClient";
 import { BarChart as RBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, LineChart, Line } from "recharts";
-// The two logo images that were embedded here as base64 text were corrupted (same
-// broken data found and replaced in the main app's App.js), so the mask is drawn
-// as the real traced logo instead — it can't fail to load, and it's the same
-// artwork now used everywhere else in the app.
 // Logo concept 9 ("layers peeling back") — same mark as the main site. The
 // admin dashboard is always dark, so this only ever needs the white-on-dark
 // treatment: back/middle layers in white at two opacity levels, front layer
@@ -111,6 +107,7 @@ const Icons = {
   chevR:    ({s=18,c="currentColor"})=><Ic s={s} c={c} d="M9 18l6-6-6-6"/>,
   arrowDownCirc: ({s=18,c="currentColor"})=><Ic s={s} c={c} d={["M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z","M12 7v8","M8 11l4 4 4-4"]}/>,
   medal:    ({s=20,c="currentColor"})=><Ic s={s} c={c} d={["M12 15a5 5 0 1 0 0-10 5 5 0 0 0 0 10z","M8.21 13.89 7 23l5-3 5 3-1.21-9.12"]}/>,
+  trophy:   ({s=20,c="currentColor"})=><Ic s={s} c={c} d={["M6 9H3.5a2.5 2.5 0 0 1 0-5H6","M18 9h2.5a2.5 2.5 0 0 0 0-5H18","M4 22h16","M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22","M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22","M18 2H6v7a6 6 0 0 0 12 0V2z"]}/>,
 };
 
 const Avatar = ({ size=34, bg }) => (
@@ -161,9 +158,15 @@ const exactTime = (isoString) => {
   return new Date(isoString).toLocaleString("en-NG", { day:"numeric", month:"short", year:"numeric", hour:"numeric", minute:"2-digit" });
 };
 
+// The last 7 days as real dates (oldest first, ending today), so every chart bar is
+// labelled with the weekday it actually belongs to — not a fixed Mon..Sun list.
+const lastSevenDays = () => [...Array(7)].map((_,i) => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - (6-i)); return d; });
+const weekdayLabel = (d) => d.toLocaleDateString("en-NG", { weekday:"short" });
+const naira = (n) => `₦${Number(n||0).toLocaleString("en-NG", { maximumFractionDigits:2 })}`;
+
 // ─── MINI BAR CHART ───────────────────────────────────────────────────────────
 const BarChart = ({ data, labels, color="#ff5c3a", height=80 }) => {
-  const max = Math.max(...data);
+  const max = Math.max(1, ...data);
   return (
     <div style={{ display:"flex", alignItems:"flex-end", gap:6, height }}>
       {data.map((v,i) => (
@@ -290,6 +293,7 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
   const items = [
     { key:"overview",     icon:<Icons.chart s={16}/>, label:"Overview" },
     { key:"revenue",      icon:<Icons.money s={16}/>, label:"Revenue" },
+    { key:"money",        icon:<Icons.bank s={16}/>, label:"Wallet Money" },
     { key:"users",        icon:<Icons.users s={16}/>, label:"Users" },
     { key:"messages",     icon:<Icons.chat s={16}/>, label:"Messages" },
     { key:"hints",        icon:<LogoMaskImg size={16}/>, label:"Hints" },
@@ -344,11 +348,11 @@ const Sidebar = ({ active, setActive, collapsed, setCollapsed }) => {
 const Overview = () => {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ totalUsers:0, totalMessages:0, hintsSold:0, pendingWithdrawals:0, messagesToday:0, hintsToday:0, signupsToday:0 });
+  const [weekLabels, setWeekLabels] = useState(["","","","","","",""]);
   const [weekUsers, setWeekUsers] = useState([0,0,0,0,0,0,0]);
   const [weekRevenue, setWeekRevenue] = useState([0,0,0,0,0,0,0]);
   const [recentActivity, setRecentActivity] = useState([]);
   const [onlineCount, setOnlineCount] = useState(0);
-  const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
   useEffect(() => { fetchOverview(); }, []);
 
@@ -365,13 +369,19 @@ const Overview = () => {
 
   const fetchOverview = async () => {
     setLoading(true);
-    const todayStr = new Date().toDateString();
+    const days = lastSevenDays();
+    const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
+    const todayStr = startOfToday.toDateString();
 
-    const [{ count: totalUsers }, { count: totalMessages }, { data: hintTx }, { data: withdrawalTx }] = await Promise.all([
+    const [{ count: totalUsers }, { count: totalMessages }, { data: hintTx }, { data: withdrawalTx }, { data: weekProfiles }, { count: signupsToday }, { count: msgsToday }] = await Promise.all([
       supabase.from("profiles").select("id", { count:"exact", head:true }),
       supabase.from("messages").select("id", { count:"exact", head:true }),
       supabase.from("transactions").select("amount, created_at").eq("type","hint_purchase").eq("status","completed"),
       supabase.from("transactions").select("amount").eq("type","withdrawal").eq("status","pending"),
+      // ALL sign-ups from the last 7 days (the old version only looked at the latest 5)
+      supabase.from("profiles").select("created_at").gte("created_at", days[0].toISOString()),
+      supabase.from("profiles").select("id", { count:"exact", head:true }).gte("created_at", startOfToday.toISOString()),
+      supabase.from("messages").select("id", { count:"exact", head:true }).gte("created_at", startOfToday.toISOString()),
     ]);
 
     const { data: recentProfiles } = await supabase.from("profiles").select("id, username, created_at").order("created_at",{ascending:false}).limit(5);
@@ -380,18 +390,13 @@ const Overview = () => {
     const hintsSold = (hintTx || []).length;
     const pendingWithdrawals = (withdrawalTx || []).reduce((s,t)=>s+Number(t.amount),0);
     const hintsToday = (hintTx || []).filter(t => new Date(t.created_at).toDateString() === todayStr).length;
-    const signupsToday = (recentProfiles || []).filter(p => new Date(p.created_at).toDateString() === todayStr).length;
 
-    const { count: msgsToday } = await supabase.from("messages").select("id", { count:"exact", head:true }).gte("created_at", new Date().toISOString().slice(0,10));
+    setStats({ totalUsers: totalUsers||0, totalMessages: totalMessages||0, hintsSold, pendingWithdrawals, messagesToday: msgsToday||0, hintsToday, signupsToday: signupsToday||0 });
 
-    setStats({ totalUsers: totalUsers||0, totalMessages: totalMessages||0, hintsSold, pendingWithdrawals, messagesToday: msgsToday||0, hintsToday, signupsToday });
-
-    const dayBuckets = [...Array(7)].map((_,i) => {
-      const d = new Date(); d.setDate(d.getDate() - (6-i));
-      return d.toDateString();
-    });
-    setWeekUsers(dayBuckets.map(dStr => (recentProfiles||[]).filter(p=>new Date(p.created_at).toDateString()===dStr).length));
-    setWeekRevenue(dayBuckets.map(dStr => (hintTx||[]).filter(t=>new Date(t.created_at).toDateString()===dStr).reduce((s,t)=>s+Number(t.amount),0)));
+    const dayKeys = days.map(d => d.toDateString());
+    setWeekLabels(days.map(weekdayLabel));
+    setWeekUsers(dayKeys.map(k => (weekProfiles||[]).filter(p=>new Date(p.created_at).toDateString()===k).length));
+    setWeekRevenue(dayKeys.map(k => (hintTx||[]).filter(t=>new Date(t.created_at).toDateString()===k).reduce((s,t)=>s+Number(t.amount),0)));
 
     const recipientIds = [...new Set((recentMessages||[]).map(m=>m.recipient_id))];
     const { data: recipientProfiles } = recipientIds.length
@@ -437,7 +442,7 @@ const Overview = () => {
           <p style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.75rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>New users, last 7 days</p>
           <p className="syne" style={{ color:"white", fontSize:"1.4rem", fontWeight:800, marginBottom:16 }}>+{weekUsers.reduce((a,b)=>a+b,0)}</p>
           <ResponsiveContainer width="100%" height={160}>
-            <RBarChart data={days.map((d,i)=>({ day:d, value:weekUsers[i] }))} margin={{ top:5, right:5, left:-20, bottom:5 }}>
+            <RBarChart data={weekLabels.map((d,i)=>({ day:d, value:weekUsers[i] }))} margin={{ top:5, right:5, left:-20, bottom:5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
               <XAxis dataKey="day" stroke="rgba(255,255,255,0.3)" fontSize={12}/>
               <YAxis stroke="rgba(255,255,255,0.3)" fontSize={12} allowDecimals={false}/>
@@ -450,7 +455,7 @@ const Overview = () => {
           <p style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.75rem", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>Hint revenue, last 7 days (₦)</p>
           <p className="syne" style={{ color:"white", fontSize:"1.4rem", fontWeight:800, marginBottom:16 }}>₦{weekRevenue.reduce((a,b)=>a+b,0).toLocaleString()}</p>
           <ResponsiveContainer width="100%" height={160}>
-            <RBarChart data={days.map((d,i)=>({ day:d, value:weekRevenue[i] }))} margin={{ top:5, right:5, left:-20, bottom:5 }}>
+            <RBarChart data={weekLabels.map((d,i)=>({ day:d, value:weekRevenue[i] }))} margin={{ top:5, right:5, left:-20, bottom:5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
               <XAxis dataKey="day" stroke="rgba(255,255,255,0.3)" fontSize={12}/>
               <YAxis stroke="rgba(255,255,255,0.3)" fontSize={12} allowDecimals={false}/>
@@ -550,9 +555,9 @@ const Revenue = () => {
       return { data, labels };
     }
     if (range === "daily") {
-      const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-      const buckets = [...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); return d.toDateString(); });
-      return { data: buckets.map(dStr=>hintTx.filter(t=>new Date(t.created_at).toDateString()===dStr).reduce((s,t)=>s+hintProfit(t),0)), labels: days };
+      const days = lastSevenDays();
+      const keys = days.map(d=>d.toDateString());
+      return { data: keys.map(k=>hintTx.filter(t=>new Date(t.created_at).toDateString()===k).reduce((s,t)=>s+hintProfit(t),0)), labels: days.map(weekdayLabel) };
     }
     if (range === "monthly") {
       const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -564,16 +569,17 @@ const Revenue = () => {
       const data = years.map(y=>hintTx.filter(t=>new Date(t.created_at).getFullYear()===y).reduce((s,t)=>s+hintProfit(t),0));
       return { data, labels: years.map(String) };
     }
-    const buckets = [...Array(8)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(7-i)*7); return d; });
-    const data = buckets.map((start)=>{
+    // weekly: the last 8 weeks, each labelled with the date the week starts
+    const starts = [...Array(8)].map((_,i)=>{ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-(7-i)*7+1); return d; });
+    const data = starts.map((start)=>{
       const end = new Date(start); end.setDate(end.getDate()+7);
       return hintTx.filter(t=>{const d=new Date(t.created_at); return d>=start && d<end;}).reduce((s,t)=>s+hintProfit(t),0);
     });
-    return { data, labels: data.map((_,i)=>`W${i+1}`) };
+    return { data, labels: starts.map(d=>d.toLocaleDateString("en-NG",{day:"numeric",month:"short"})) };
   })();
 
   const chartTotal = bucketed.data.reduce((a,b)=>a+b,0);
-  const rangeChangeLabel = { hourly:"today, by hour", daily:"last 7 days", weekly:"last 8 weeks", monthly:`${thisYear}, by month`, yearly:"last 4 years" }[range];
+  const rangeChangeLabel = { hourly:"today, by hour", daily:"last 7 days", weekly:"last 8 weeks (week starting)", monthly:`${thisYear}, by month`, yearly:"last 4 years" }[range];
 
   const profitSources = [
     { source:"Hint purchases — Unmaskr's 50% cut", amount:`₦${profit.toLocaleString()}`, percent:100, color:"#ff5c3a" },
@@ -709,11 +715,11 @@ const ProfitSweepLog = ({ totalProfit }) => {
   return (
     <Card style={{ marginBottom:20 }}>
       <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:4 }}>Profit swept to bank</p>
-      <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem", marginBottom:18 }}>Log it here whenever you move profit from Paystack into your own account — keeps this dashboard accurate</p>
+      <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.78rem", marginBottom:18 }}>Log it here whenever you move profit from Bachs into your own account — keeps this dashboard accurate</p>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
         <div style={{ background:"rgba(255,255,255,0.04)", borderRadius:12, padding:"14px 16px" }}>
-          <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.72rem", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Still in Paystack</p>
+          <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.72rem", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>Still in Bachs</p>
           <p className="syne" style={{ color:"#38bdf8", fontSize:"1.3rem", fontWeight:800 }}>₦{stillInPaystack.toLocaleString()}</p>
         </div>
         <div style={{ background:"rgba(255,255,255,0.04)", borderRadius:12, padding:"14px 16px" }}>
@@ -739,6 +745,92 @@ const ProfitSweepLog = ({ totalProfit }) => {
         </div>
       ))}
     </Card>
+  );
+};
+// ─── WALLET MONEY ─────────────────────────────────────────────────────────────
+// Where all the money stands: what users hold, what has gone out, and a safety check
+// so you never pay out more than your Bachs balance can cover.
+const Money = () => {
+  const [s, setS] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [bachs, setBachs] = useState("");
+
+  const load = async () => {
+    setLoading(true); setErr("");
+    const { data, error } = await supabase.rpc("admin_money_summary");
+    if (error) { setErr(error.message?.includes("does not exist") ? "The summary isn't set up yet. Run admin_money.sql in the Supabase SQL Editor." : (error.message || "Couldn't load the summary.")); setLoading(false); return; }
+    setS(data);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const walletTotal = Number(s?.wallet_total || 0);
+  const pending = Number(s?.withdrawals_pending || 0);
+  const owed = walletTotal + pending;                       // what you owe users right now
+  const hintsKept = Number(s?.hints_spent || 0) - Number(s?.hints_earned || 0);
+  const bachsNum = Number(bachs);
+  const cushion = bachs !== "" && !isNaN(bachsNum) ? bachsNum - owed : null;
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18, flexWrap:"wrap", gap:10 }}>
+        <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.8rem", maxWidth:520 }}>Everything below comes straight from the database. Use the safety check to make sure your Bachs balance always covers what users are owed.</p>
+        <button onClick={load} disabled={loading} style={{ padding:"8px 14px", borderRadius:8, border:"1px solid rgba(255,255,255,0.1)", background:"transparent", color:"rgba(255,255,255,0.6)", cursor:"pointer", fontSize:"0.78rem", display:"flex", alignItems:"center", gap:6 }}><Icons.refresh s={13} c="rgba(255,255,255,0.6)"/>{loading?"Loading...":"Refresh"}</button>
+      </div>
+
+      {err && <p style={{ color:"#ef4444", fontSize:"0.85rem", marginBottom:16 }}>{err}</p>}
+
+      {s && (
+        <>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:14, marginBottom:20 }}>
+            <StatCard icon={<Icons.bank s={20} c="#38bdf8"/>} label={`In users' wallets now (${s.wallet_users} user${Number(s.wallet_users)===1?"":"s"})`} value={naira(walletTotal)} color="#38bdf8"/>
+            <StatCard icon={<Icons.clock s={20} c="#ffcd3c"/>} label="Withdrawals waiting for you to pay" value={naira(pending)} color="#ffcd3c"/>
+            <StatCard icon={<Icons.arrowDownCirc s={20} c="#22c55e"/>} label="Total deposited (all time)" value={naira(s.deposited)} color="#22c55e"/>
+            <StatCard icon={<Icons.money s={20} c="#a855f7"/>} label="Total withdrawn (paid out)" value={naira(s.withdrawn)} color="#a855f7"/>
+          </div>
+
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:14, marginBottom:20 }}>
+            <StatCard icon={<MaskIcon size={20} color="#ff5c3a"/>} label="Spent on hints (by buyers)" value={naira(s.hints_spent)} color="#ff5c3a"/>
+            <StatCard icon={<Icons.users s={20} c="#ec4899"/>} label="Earned from hints (credited to senders)" value={naira(s.hints_earned)} color="#ec4899"/>
+            <StatCard icon={<Icons.chart s={20} c="#22c55e"/>} label="Kept by Unmaskr from hints" value={naira(hintsKept)} color="#22c55e"/>
+          </div>
+
+          <Card style={{ marginBottom:20, border:"1px solid rgba(255,205,60,0.25)" }}>
+            <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:6 }}>Safety check before you pay out</p>
+            <p style={{ color:"rgba(255,255,255,0.45)", fontSize:"0.8rem", marginBottom:16, lineHeight:1.6 }}>
+              You owe users: <strong style={{ color:"white" }}>{naira(walletTotal)}</strong> in wallets + <strong style={{ color:"white" }}>{naira(pending)}</strong> in withdrawals not yet paid = <strong style={{ color:"#ffcd3c" }}>{naira(owed)}</strong>.
+              Type your <strong>Available</strong> balance from the Bachs dashboard (not the Pending part):
+            </p>
+            <input type="number" placeholder="Your Bachs available balance (₦)" value={bachs} onChange={e=>setBachs(e.target.value)} style={{ width:"100%", maxWidth:320, padding:"12px 14px", borderRadius:10, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.06)", color:"white", outline:"none", fontSize:"0.9rem", fontFamily:"'DM Sans',sans-serif" }}/>
+            {cushion !== null && (
+              cushion >= 0 ? (
+                <div style={{ marginTop:14, padding:"12px 14px", background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.25)", borderRadius:10 }}>
+                  <p style={{ color:"#22c55e", fontSize:"0.9rem", fontWeight:600 }}>Safe. {naira(cushion)} of the Bachs balance is yours.</p>
+                  <p style={{ color:"rgba(255,255,255,0.45)", fontSize:"0.78rem", marginTop:4 }}>That's the most you can take out for yourself without touching users' money.</p>
+                </div>
+              ) : (
+                <div style={{ marginTop:14, padding:"12px 14px", background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:10 }}>
+                  <p style={{ color:"#ef4444", fontSize:"0.9rem", fontWeight:600 }}>Short by {naira(Math.abs(cushion))}. Bachs holds less than you owe users.</p>
+                  <p style={{ color:"rgba(255,255,255,0.45)", fontSize:"0.78rem", marginTop:4 }}>Don't take anything out. Check whether recent top-ups are still Pending in Bachs, and whether fees were charged.</p>
+                </div>
+              )
+            )}
+          </Card>
+
+          <Card>
+            <p className="syne" style={{ color:"white", fontWeight:700, marginBottom:14 }}>Biggest wallets</p>
+            {(s.top_wallets||[]).length === 0 && <p style={{ color:"rgba(255,255,255,0.3)", fontSize:"0.85rem" }}>No wallet has a balance right now.</p>}
+            {(s.top_wallets||[]).map((w,i) => (
+              <div key={i} className="row-hover" style={{ display:"flex", justifyContent:"space-between", padding:"10px 8px", borderRadius:8, borderBottom:i<s.top_wallets.length-1?"1px solid rgba(255,255,255,0.05)":"none" }}>
+                <span style={{ color:"white", fontSize:"0.85rem" }}>@{w.username || "unknown"}</span>
+                <span style={{ color:"white", fontSize:"0.85rem", fontWeight:600 }}>{naira(w.balance)}</span>
+              </div>
+            ))}
+          </Card>
+        </>
+      )}
+    </div>
   );
 };
 // ─── USERS ────────────────────────────────────────────────────────────────────
@@ -796,8 +888,8 @@ const Users = () => {
     }));
 
     setUsers(enriched);
-    const today = new Date().toDateString();
-    setNewToday(profilesData.filter(u => new Date(u.created_at).toDateString() === today).length);
+    const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
+    setNewToday(profilesData.filter(u => new Date(u.created_at) >= startOfToday).length);
     setLoading(false);
   };
 
@@ -997,10 +1089,9 @@ const Hints = () => {
     setUnmaskrShare(rows.reduce((s,t)=>s+(t.sender_paid===false?Number(t.amount):Number(t.amount)*0.5),0));
     setPaidToUsers((earnings||[]).reduce((s,t)=>s+Number(t.amount),0));
 
-    const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-    const buckets = [...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); return d; });
-    setWeekData(buckets.map((d,i) => ({
-      day: days[i],
+    // Each bar is labelled with the weekday it really is
+    setWeekData(lastSevenDays().map(d => ({
+      day: weekdayLabel(d),
       hints: rows.filter(t=>new Date(t.created_at).toDateString()===d.toDateString()).length,
     })));
     setLoading(false);
@@ -1041,7 +1132,6 @@ const GamesAdmin = () => {
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState([]);
   const [playersBySession, setPlayersBySession] = useState({});
-  const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
   useEffect(() => { fetchGames(); }, []);
 
@@ -1068,7 +1158,10 @@ const GamesAdmin = () => {
   const quizFinished = finished.filter(s => s.game_type === "stake_win");
   const totalPlayed = mysteryFinished.length + quizFinished.length;
 
-  const buckets = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); return d.toDateString(); });
+  // Each bar is labelled with the weekday it really is
+  const dayList = lastSevenDays();
+  const days = dayList.map(weekdayLabel);
+  const buckets = dayList.map(d => d.toDateString());
   const mysteryWeek = buckets.map(dStr => mysteryFinished.filter(s => new Date(s.created_at).toDateString() === dStr).length);
   const quizWeek = buckets.map(dStr => quizFinished.filter(s => new Date(s.created_at).toDateString() === dStr).length);
 
@@ -1279,10 +1372,10 @@ const Deposits = () => {
 };
 
 // ─── WITHDRAWALS ──────────────────────────────────────────────────────────────
-// Paying and rejecting now go through admin_pay_withdrawal() / admin_reject_withdrawal()
-// in the database. The user's wallet was already debited the moment they requested
-// the withdrawal (see request_withdrawal() in wallet-security.sql) — Pay here just
-// flips the status once, and Reject refunds the held amount back automatically.
+// "Pay" now sends the money through Bachs (the rapid-endpoint function): it checks the
+// name the BANK holds against the user's Unmaskr name, sends the payout, waits for Bachs
+// to confirm, and moves the withdrawal to Completed by itself. A payout that Bachs is
+// still reviewing shows "Processing at Bachs" and is re-checked automatically.
 const Withdrawals = () => {
   const [tab, setTab] = useState("pending");
   const [pending, setPending] = useState([]);
@@ -1292,6 +1385,8 @@ const Withdrawals = () => {
   const [actionError, setActionError] = useState("");
 
   useEffect(() => { fetchWithdrawals(); }, []);
+
+  // After a refresh, payouts still with Bachs are marked and keep being checked
   useEffect(() => {
     if (loading) return;
     supabase.from("withdrawal_details").select("txn_id,state").eq("state","processing").then(({ data }) => {
@@ -1352,7 +1447,7 @@ const Withdrawals = () => {
     setPending(p => p.filter(x => x.id !== w.id));
     setCompleted(c => [{ ...w, status:"completed", date:"Just now" }, ...c]);
   };
- 
+
   // Old manual path: you already sent the money yourself, so just mark it paid.
   const markPaidManually = async (w) => {
     const { error } = await supabase.rpc("admin_pay_withdrawal", { p_transaction_id: w.id });
@@ -1362,13 +1457,13 @@ const Withdrawals = () => {
     }
     await finishPaid(w);
   };
- 
+
   const callPay = async (w, override=false) => {
     const { data, error } = await supabase.functions.invoke("rapid-endpoint", { body: { transaction_id: w.id, override } });
     if (!error && data) return data;
     try { return await error.context.json(); } catch (e) { return { error:"request_failed", message:"Couldn't reach the payout service." }; }
   };
- 
+
   // Checks a payout that Bachs is still processing, every 15 seconds, and finishes it
   // by itself when Bachs confirms. Keeps working while this page stays open.
   const watchPayout = (w, tries=0) => {
@@ -1381,34 +1476,34 @@ const Withdrawals = () => {
       else watchPayout(w, tries + 1);
     }, 15000);
   };
- 
+
   const payWithdrawal = async (w) => {
     setPayingId(w.id);
     setActionError("");
- 
+
     // Airtime withdrawals are still paid by hand
     if (w.bank === "Airtime") {
       if (window.confirm("Airtime is paid by hand. Have you already sent it? Tap OK to mark it as paid.")) await markPaidManually(w);
       setPayingId(null);
       return;
     }
- 
+
     let r = await callPay(w, false);
- 
+
     // The name the bank holds doesn't match the Unmaskr profile name — you decide
     if (r.error === "name_mismatch") {
       const ok = window.confirm(`Names don't match.\n\nBank says: ${r.account_name || "(unknown)"}\nUnmaskr profile: ${r.profile_name || "(none)"}\n\nPay anyway? Cancel keeps it pending so you can reject it.`);
       if (!ok) { setPayingId(null); setActionError("Not paid — the account name didn't match. You can Reject it to refund the user."); return; }
       r = await callPay(w, true);
     }
- 
+
     // Older requests (or any without a saved bank code) can't be automated
     if (r.error === "no_bank_code") {
       if (window.confirm("This request has no bank code, so it can't be paid automatically. If you've already sent the money yourself, tap OK to mark it paid.")) await markPaidManually(w);
       setPayingId(null);
       return;
     }
- 
+
     if (r.error) {
       setActionError(r.message || `Couldn't pay this withdrawal (${r.error}).${r.detail ? " " + r.detail : ""}`);
     } else if (r.state === "completed") {
@@ -1425,6 +1520,7 @@ const Withdrawals = () => {
     }
     setPayingId(null);
   };
+
   const rejectWithdrawal = async (w) => {
     setActionError("");
     const { error } = await supabase.rpc("admin_reject_withdrawal", { p_transaction_id: w.id });
@@ -1466,8 +1562,8 @@ const Withdrawals = () => {
                 <span className="syne" style={{ color:"white", fontWeight:700, fontSize:"1rem" }}>{w.amount}</span>
                 {w.processing && <Badge text="Processing at Bachs" color="#ffcd3c" icon={<Icons.clock s={10} c="#ffcd3c"/>}/>}
                 <div style={{ display:"flex", gap:6 }}>
-                  <button onClick={()=>payWithdrawal(w)} disabled={payingId===w.id} style={{ padding:"7px 14px", borderRadius:8, border:"none", background:"#22c55e", color:"white", cursor:payingId===w.id?"default":"pointer", fontSize:"0.78rem", fontWeight:600, display:"inline-flex", alignItems:"center", gap:5, opacity:payingId===w.id?0.6:1 }}><Icons.check s={12} c="white"/>{payingId===w.id?"Paying...":"Pay"}</button>
-                  <button onClick={()=>rejectWithdrawal(w)} disabled={payingId===w.id} style={{ padding:"7px 14px", borderRadius:8, border:"1px solid rgba(239,68,68,0.3)", background:"rgba(239,68,68,0.1)", color:"#ef4444", cursor:"pointer", fontSize:"0.78rem" }}>Reject</button>
+                  <button onClick={()=>payWithdrawal(w)} disabled={payingId===w.id} style={{ padding:"7px 14px", borderRadius:8, border:"none", background:"#22c55e", color:"white", cursor:payingId===w.id?"default":"pointer", fontSize:"0.78rem", fontWeight:600, display:"inline-flex", alignItems:"center", gap:5, opacity:payingId===w.id?0.6:1 }}><Icons.check s={12} c="white"/>{payingId===w.id?"Paying...":(w.processing?"Check":"Pay")}</button>
+                  <button onClick={()=>rejectWithdrawal(w)} disabled={payingId===w.id || w.processing} style={{ padding:"7px 14px", borderRadius:8, border:"1px solid rgba(239,68,68,0.3)", background:"rgba(239,68,68,0.1)", color:"#ef4444", cursor:(payingId===w.id||w.processing)?"not-allowed":"pointer", fontSize:"0.78rem", opacity:w.processing?0.4:1 }}>Reject</button>
                 </div>
               </div>
             ))}
@@ -1544,7 +1640,7 @@ const Complaints = () => {
       userId: c.user_id,
       user: `@${profileById[c.user_id]?.username || "unknown"}`,
       // Full name + exact timestamp, so you can match a report against your
-      // Paystack dashboard by who-and-when rather than just a username.
+      // Bachs dashboard by who-and-when rather than just a username.
       fullName: profileById[c.user_id]?.name || "Unknown",
       email: profileById[c.user_id]?.email || null,
       subject: c.subject,
@@ -1711,7 +1807,7 @@ const Complaints = () => {
             </div>
             <p style={{ color:"white", fontSize:"0.92rem", fontWeight:600, marginBottom:8 }}>{selected.subject}</p>
             {/* Full name + exact date/time — what you need to look this person's
-                payment up in Paystack, not just a relative "2h ago". */}
+                payment up in Bachs, not just a relative "2h ago". */}
             <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.82rem", marginBottom:4 }}>From: {selected.fullName} ({selected.user})</p>
             <p style={{ color:"rgba(255,255,255,0.4)", fontSize:"0.82rem", marginBottom:4 }}>Filed: {selected.exactTime}</p>
             <div style={{ background:"rgba(255,255,255,0.04)", borderRadius:12, padding:"16px", marginTop:16, marginBottom:20 }}>
@@ -1846,8 +1942,8 @@ const PushNotifications = () => {
   const fetchAudienceCounts = async () => {
     const { count: all } = await supabase.from("profiles").select("id", { count:"exact", head:true });
     const { count: active } = await supabase.from("profiles").select("id", { count:"exact", head:true }).eq("status","active");
-    const todayStr = new Date().toISOString().slice(0,10);
-    const { count: newToday } = await supabase.from("profiles").select("id", { count:"exact", head:true }).gte("created_at", todayStr);
+    const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
+    const { count: newToday } = await supabase.from("profiles").select("id", { count:"exact", head:true }).gte("created_at", startOfToday.toISOString());
     const eighteenYearsAgo = new Date(); eighteenYearsAgo.setFullYear(eighteenYearsAgo.getFullYear()-18);
     const { count: adults } = await supabase.from("profiles").select("id", { count:"exact", head:true }).lte("dob", eighteenYearsAgo.toISOString().slice(0,10));
     const { data: msgRecipients } = await supabase.from("messages").select("recipient_id");
@@ -2018,7 +2114,8 @@ const AdminSettings = ({ onLogout, adminEmail }) => {
             {[
               { label:"Hint revenue to Unmaskr", value:"50%" },
               { label:"Hint revenue to user", value:"50%" },
-              { label:"Min withdrawal", value:"₦500" },
+              { label:"Min withdrawal", value:"₦1,000" },
+              { label:"Withdrawal charge", value:"₦50" },
             ].map(r => (
               <div key={r.label} style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
                 <span style={{ color:"rgba(255,255,255,0.5)", fontSize:"0.83rem" }}>{r.label}</span>
@@ -2169,7 +2266,7 @@ export default function AdminApp() {
   };
 
   const titles = {
-    overview:"Overview", revenue:"Revenue", users:"Users",
+    overview:"Overview", revenue:"Revenue", money:"Wallet Money", users:"Users",
     messages:"Messages", hints:"Hint Analytics", games:"Games",
     deposits:"Deposits", withdrawals:"Withdrawals", complaints:"Complaints",
     notifications:"Push Notifications", settings:"Settings",
@@ -2212,6 +2309,7 @@ export default function AdminApp() {
           <div className="admin-content" style={{ flex:1, padding:"20px", overflowY:"auto" }}>
             {active==="overview"      && <Overview/>}
             {active==="revenue"       && <Revenue/>}
+            {active==="money"         && <Money/>}
             {active==="users"         && <Users/>}
             {active==="messages"      && <Messages/>}
             {active==="hints"         && <Hints/>}
